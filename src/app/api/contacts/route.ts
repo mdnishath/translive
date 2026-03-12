@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth";
+import { getIO } from "@/lib/socket/io";
+import { SOCKET_EVENTS } from "@/lib/socket/events";
 
 export async function GET(request: NextRequest) {
   try {
@@ -38,7 +40,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    if (email === (await prisma.user.findUnique({ where: { id: payload.userId }, select: { email: true } }))?.email) {
+    const currentUser = await prisma.user.findUnique({ where: { id: payload.userId }, select: { email: true } });
+    if (email === currentUser?.email) {
       return NextResponse.json({ error: "Cannot add yourself" }, { status: 400 });
     }
 
@@ -51,19 +54,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Add contact (both directions)
+    // Add contact record (one direction is enough for lookup; add both for symmetry)
     await prisma.contact.upsert({
       where: { userId_contactId: { userId: payload.userId, contactId: contactUser.id } },
       create: { userId: payload.userId, contactId: contactUser.id },
       update: {},
     });
 
-    // Create a conversation if none exists
+    // Create a conversation between the two users if one does not already exist
     const existingConv = await prisma.conversation.findFirst({
       where: {
-        participants: {
-          every: { userId: { in: [payload.userId, contactUser.id] } },
-        },
         AND: [
           { participants: { some: { userId: payload.userId } } },
           { participants: { some: { userId: contactUser.id } } },
@@ -71,14 +71,32 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    let conversationId: string | null = existingConv?.id ?? null;
+
     if (!existingConv) {
-      await prisma.conversation.create({
+      const newConv = await prisma.conversation.create({
         data: {
           participants: {
             create: [{ userId: payload.userId }, { userId: contactUser.id }],
           },
         },
       });
+      conversationId = newConv.id;
+    }
+
+    // Notify both users via Socket.io so their sidebars update immediately —
+    // no page refresh needed. Each user's socket auto-joins the new room and
+    // calls fetchConversations() on the client side.
+    if (conversationId) {
+      const io = getIO();
+      if (io) {
+        const payload_event = { conversationId };
+        // Notify the contact (User B) — new conversation appeared for them
+        io.to(`user:${contactUser.id}`).emit(SOCKET_EVENTS.NEW_CONVERSATION, payload_event);
+        // Also notify User A — their socket joins the room immediately so they
+        // can receive messages before they click on the conversation
+        io.to(`user:${payload.userId}`).emit(SOCKET_EVENTS.NEW_CONVERSATION, payload_event);
+      }
     }
 
     return NextResponse.json({ contact: contactUser });

@@ -20,6 +20,7 @@ import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { PrismaClient } from "./src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { setIO } from "./src/lib/socket/io";
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev, dir: __dirname });
@@ -75,6 +76,9 @@ async function bootstrap() {
     transports: ["polling", "websocket"],
   });
 
+  // Make io accessible to Next.js API routes (same Node.js process)
+  setIO(io);
+
   // Per-user rate limit state (lives as long as the server process)
   const sendRateLimitMap = new Map<string, number[]>();
 
@@ -109,6 +113,10 @@ async function bootstrap() {
     // Track online
     if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
     onlineUsers.get(userId)!.add(socket.id);
+
+    // Personal room — used by API routes to push events to a specific user
+    // (e.g. "a new conversation was created for you") without knowing their socket ID.
+    socket.join(`user:${userId}`);
 
     // Join all conversation rooms this user participates in
     const participations = await prisma.conversationParticipant.findMany({

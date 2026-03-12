@@ -15,4 +15,6 @@ export const SOCKET_EVENTS = {
   USER_ONLINE: "user_online",
   USER_OFFLINE: "user_offline",
   ONLINE_USERS: "online_users",
+  /** Server → Client: a new conversation was created that involves this user. */
+  NEW_CONVERSATION: "new_conversation",
 } as const;

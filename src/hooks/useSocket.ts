@@ -10,6 +10,8 @@ interface UseSocketOptions {
   onUserOffline?: (userId: string) => void;
   onOnlineUsers?: (userIds: string[]) => void;
   onReceiveMessage?: (message: Message) => void;
+  /** Called when a new conversation is created that involves this user. */
+  onNewConversation?: () => void;
 }
 
 function dispatch(name: string, detail: unknown) {
@@ -68,6 +70,15 @@ export function useSocket(options: UseSocketOptions = {}) {
 
     socket.on(SOCKET_EVENTS.USER_STOP_TYPING, (data: { userId: string; conversationId: string }) => {
       dispatch("socket:user_stop_typing", data);
+    });
+
+    // ── New conversation notification ────────────────────────────
+    // Fired by the server when a new contact/conversation is created.
+    // The client auto-joins the socket room and refreshes the sidebar —
+    // the other user sees the new conversation instantly without a reload.
+    socket.on(SOCKET_EVENTS.NEW_CONVERSATION, ({ conversationId }: { conversationId: string }) => {
+      socket.emit(SOCKET_EVENTS.JOIN_CONVERSATION, conversationId);
+      optionsRef.current.onNewConversation?.();
     });
 
     // ── Presence events ─────────────────────────────────────────

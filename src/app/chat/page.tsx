@@ -13,9 +13,6 @@ export default function ChatPage() {
   const { user, loading } = useAuth();
 
   // ── Zustand store actions ─────────────────────────────────────────
-  // chat/page.tsx owns data-fetching and socket orchestration.
-  // All shared state lives in the store so child components can subscribe
-  // to only the slices they need — no unnecessary re-renders.
   const {
     setConversations,
     updateLastMessage,
@@ -26,7 +23,7 @@ export default function ChatPage() {
     clearUnread,
   } = useChatStore();
 
-  // ── Local UI state ───────────────────────────────────────────────
+  // ── Local UI state ────────────────────────────────────────────────
   const [convLoading, setConvLoading] = useState(true);
   /** Fix #9: Track fetch errors so the user sees an error banner instead of an empty list. */
   const [convError, setConvError] = useState(false);
@@ -37,6 +34,31 @@ export default function ChatPage() {
   // without needing to be recreated when selection changes.
   const selectedRef = useRef<ConversationItem | null>(null);
   selectedRef.current = selected;
+
+  // ── Data fetching ─────────────────────────────────────────────────
+  // Defined BEFORE useSocket so it can be passed as onNewConversation callback.
+
+  const fetchConversations = useCallback(async () => {
+    setConvError(false);
+    try {
+      const res = await fetch("/api/conversations");
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data.conversations);
+      } else {
+        // Fix #9: Surface the error instead of leaving the list empty
+        setConvError(true);
+      }
+    } catch {
+      setConvError(true);
+    } finally {
+      setConvLoading(false);
+    }
+  }, [setConversations]);
+
+  useEffect(() => {
+    if (user) fetchConversations();
+  }, [user, fetchConversations]);
 
   // ── Socket message handlers ───────────────────────────────────────
 
@@ -64,11 +86,13 @@ export default function ChatPage() {
     onUserOffline: removeOnlineUser,
     onOnlineUsers: setOnlineUsers,
     onReceiveMessage: handleReceiveMessage,
+    // When the server notifies us of a new conversation (either we added someone,
+    // or someone added us), refresh the sidebar immediately — no page reload needed.
+    onNewConversation: fetchConversations,
   });
 
-  // ── Fix #26: Also update the sidebar when the current user's own message ─
-  // is confirmed by the server (message_saved). Previously, only messages    ──
-  // received FROM others updated the sidebar last-message preview.           ──
+  // ── Fix #26: Update sidebar when the current user's own message is confirmed ─
+
   useEffect(() => {
     function onMessageSaved(e: Event) {
       const { message } = (e as CustomEvent).detail as {
@@ -89,30 +113,6 @@ export default function ChatPage() {
     return () => window.removeEventListener("socket:message_saved", onMessageSaved);
   }, [updateLastMessage]);
 
-  // ── Data fetching ─────────────────────────────────────────────────
-
-  const fetchConversations = useCallback(async () => {
-    setConvError(false);
-    try {
-      const res = await fetch("/api/conversations");
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data.conversations);
-      } else {
-        // Fix #9: Surface the error instead of leaving the list empty
-        setConvError(true);
-      }
-    } catch {
-      setConvError(true);
-    } finally {
-      setConvLoading(false);
-    }
-  }, [setConversations]);
-
-  useEffect(() => {
-    if (user) fetchConversations();
-  }, [user, fetchConversations]);
-
   // ── Handlers ──────────────────────────────────────────────────────
 
   async function handleAddContact(email: string): Promise<{ name: string }> {
@@ -123,6 +123,9 @@ export default function ChatPage() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to add contact");
+    // User A's sidebar is updated via the onNewConversation socket callback
+    // that the server emits back to them. fetchConversations here is a fallback
+    // in case the socket event arrives before the DB write is visible.
     await fetchConversations();
     return { name: data.contact.name };
   }
@@ -218,7 +221,7 @@ export default function ChatPage() {
           } flex-col`}
         >
           {/* ContactList subscribes to conversations/onlineUserIds/unreadCounts
-              directly from the store — no prop-drilling of store-managed state */}
+              directly from the Zustand store — no prop-drilling needed */}
           <ContactList
             selectedId={selected?.id ?? null}
             currentUserId={user.id}
