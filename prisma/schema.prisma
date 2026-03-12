@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===========================================
+// User Model
+// ===========================================
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  language  String   @default("bn") // "bn" or "fr"
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sentMessages     Message[]              @relation("SentMessages")
+  conversations    ConversationParticipant[]
+  contacts         Contact[]              @relation("UserContacts")
+  contactOf        Contact[]              @relation("ContactOf")
+
+  @@map("users")
+}
+
+// ===========================================
+// Conversation Model
+// ===========================================
+model Conversation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+// ===========================================
+// Join table: User <-> Conversation
+// ===========================================
+model ConversationParticipant {
+  id             String       @id @default(cuid())
+  userId         String
+  conversationId String
+  joinedAt       DateTime     @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conversationId])
+  @@map("conversation_participants")
+}
+
+// ===========================================
+// Message Model
+// ===========================================
+model Message {
+  id                 String      @id @default(cuid())
+  content            String
+  translatedContent  String?
+  messageType        MessageType @default(TEXT)
+  originalLanguage   String      // "bn" or "fr"
+  translatedLanguage String?     // "bn" or "fr"
+  audioUrl           String?
+  translatedAudioUrl String?
+  createdAt          DateTime    @default(now())
+
+  senderId       String
+  conversationId String
+
+  sender       User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+enum MessageType {
+  TEXT
+  VOICE
+  CALL
+}
+
+// ===========================================
+// Contact Model
+// ===========================================
+model Contact {
+  id        String   @id @default(cuid())
+  userId    String
+  contactId String
+  createdAt DateTime @default(now())
+
+  user    User @relation("UserContacts", fields: [userId], references: [id], onDelete: Cascade)
+  contact User @relation("ContactOf", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contactId])
+  @@map("contacts")
+}
