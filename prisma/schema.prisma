@@ -20,10 +20,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sentMessages     Message[]              @relation("SentMessages")
-  conversations    ConversationParticipant[]
-  contacts         Contact[]              @relation("UserContacts")
-  contactOf        Contact[]              @relation("ContactOf")
+  sentMessages  Message[]                 @relation("SentMessages")
+  conversations ConversationParticipant[]
+  contacts      Contact[]                 @relation("UserContacts")
+  contactOf     Contact[]                 @relation("ContactOf")
 
   @@map("users")
 }
@@ -44,12 +44,14 @@ model Conversation {
 
 // ===========================================
 // Join table: User <-> Conversation
+// leftAt: null = active, non-null = user has left the conversation
 // ===========================================
 model ConversationParticipant {
-  id             String       @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   conversationId String
-  joinedAt       DateTime     @default(now())
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime? // null = active participant
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -89,13 +91,26 @@ enum MessageType {
 }
 
 // ===========================================
-// Contact Model
+// Contact / Friend Request Model
+//
+// PENDING  - User A sent a request; User B has not responded yet.
+//            No conversation exists yet.
+// ACCEPTED - User B accepted. A shared conversation is active.
+// DECLINED - User B declined. No conversation created.
 // ===========================================
+enum ContactStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
 model Contact {
-  id        String   @id @default(cuid())
-  userId    String
-  contactId String
-  createdAt DateTime @default(now())
+  id        String        @id @default(cuid())
+  userId    String        // who sent the request
+  contactId String        // who received the request
+  status    ContactStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   user    User @relation("UserContacts", fields: [userId], references: [id], onDelete: Cascade)
   contact User @relation("ContactOf", fields: [contactId], references: [id], onDelete: Cascade)

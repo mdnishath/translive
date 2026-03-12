@@ -12,6 +12,12 @@ interface UseSocketOptions {
   onReceiveMessage?: (message: Message) => void;
   /** Called when a new conversation is created that involves this user. */
   onNewConversation?: () => void;
+  /** Called when someone sends this user a contact request — refresh pending list. */
+  onContactRequest?: () => void;
+  /** Called when this user's contact request was accepted — refresh conversations. */
+  onContactAccepted?: () => void;
+  /** Called when a participant leaves a conversation. */
+  onConversationLeft?: (data: { conversationId: string; userId: string }) => void;
 }
 
 function dispatch(name: string, detail: unknown) {
@@ -79,6 +85,20 @@ export function useSocket(options: UseSocketOptions = {}) {
     socket.on(SOCKET_EVENTS.NEW_CONVERSATION, ({ conversationId }: { conversationId: string }) => {
       socket.emit(SOCKET_EVENTS.JOIN_CONVERSATION, conversationId);
       optionsRef.current.onNewConversation?.();
+    });
+
+    // ── Contact request notifications ────────────────────────────
+    socket.on(SOCKET_EVENTS.CONTACT_REQUEST, () => {
+      optionsRef.current.onContactRequest?.();
+    });
+
+    socket.on(SOCKET_EVENTS.CONTACT_ACCEPTED, () => {
+      optionsRef.current.onContactAccepted?.();
+    });
+
+    // ── Conversation left notification ───────────────────────────
+    socket.on(SOCKET_EVENTS.CONVERSATION_LEFT, (data: { conversationId: string; userId: string }) => {
+      optionsRef.current.onConversationLeft?.(data);
     });
 
     // ── Presence events ─────────────────────────────────────────

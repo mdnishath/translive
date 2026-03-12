@@ -24,6 +24,7 @@ interface ChatWindowProps {
   // updates reactively without prop-drilling through the page component.
   socket: SocketActions;
   onBack?: () => void;
+  onLeave?: () => void;
 }
 
 /** After this many ms without a message_saved confirmation, mark the message as failed. */
@@ -38,6 +39,7 @@ export default function ChatWindow({
   currentUserLanguage,
   socket,
   onBack,
+  onLeave,
 }: ChatWindowProps) {
   // Subscribe to only the contact's online status — re-renders only when their
   // presence changes, not on any other store mutation.
@@ -363,6 +365,7 @@ export default function ChatWindow({
         isOnline={isContactOnline}
         isTyping={isContactTyping}
         onBack={onBack}
+        onLeave={onLeave}
       />
 
       {/* Fix #8: Reconnection banner — visible whenever the socket is offline */}

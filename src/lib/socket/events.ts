@@ -17,4 +17,12 @@ export const SOCKET_EVENTS = {
   ONLINE_USERS: "online_users",
   /** Server → Client: a new conversation was created that involves this user. */
   NEW_CONVERSATION: "new_conversation",
+  /** Server → Client: someone sent you a contact request. */
+  CONTACT_REQUEST: "contact_request",
+  /** Server → Client: your contact request was accepted. */
+  CONTACT_ACCEPTED: "contact_accepted",
+  /** Server → Client: your contact request was declined. */
+  CONTACT_DECLINED: "contact_declined",
+  /** Server → Client: a participant left a conversation. */
+  CONVERSATION_LEFT: "conversation_left",
 } as const;

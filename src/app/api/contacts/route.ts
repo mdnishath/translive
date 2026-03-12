@@ -7,16 +7,12 @@ import { SOCKET_EVENTS } from "@/lib/socket/events";
 export async function GET(request: NextRequest) {
   try {
     const payload = getAuthUser(request);
-    if (!payload) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const contacts = await prisma.contact.findMany({
-      where: { userId: payload.userId },
+      where: { userId: payload.userId, status: "ACCEPTED" },
       include: {
-        contact: {
-          select: { id: true, name: true, email: true, language: true, avatar: true },
-        },
+        contact: { select: { id: true, name: true, email: true, language: true, avatar: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -31,16 +27,15 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const payload = getAuthUser(request);
-    if (!payload) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { email } = await request.json();
-    if (!email) {
-      return NextResponse.json({ error: "Email is required" }, { status: 400 });
-    }
+    if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
 
-    const currentUser = await prisma.user.findUnique({ where: { id: payload.userId }, select: { email: true } });
+    const currentUser = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { email: true, name: true },
+    });
     if (email === currentUser?.email) {
       return NextResponse.json({ error: "Cannot add yourself" }, { status: 400 });
     }
@@ -49,54 +44,43 @@ export async function POST(request: NextRequest) {
       where: { email },
       select: { id: true, name: true, email: true, language: true, avatar: true },
     });
+    if (!contactUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    if (!contactUser) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Add contact record (one direction is enough for lookup; add both for symmetry)
-    await prisma.contact.upsert({
-      where: { userId_contactId: { userId: payload.userId, contactId: contactUser.id } },
-      create: { userId: payload.userId, contactId: contactUser.id },
-      update: {},
-    });
-
-    // Create a conversation between the two users if one does not already exist
-    const existingConv = await prisma.conversation.findFirst({
+    // Check for existing request in either direction
+    const existing = await prisma.contact.findFirst({
       where: {
-        AND: [
-          { participants: { some: { userId: payload.userId } } },
-          { participants: { some: { userId: contactUser.id } } },
+        OR: [
+          { userId: payload.userId, contactId: contactUser.id },
+          { userId: contactUser.id, contactId: payload.userId },
         ],
       },
     });
 
-    let conversationId: string | null = existingConv?.id ?? null;
-
-    if (!existingConv) {
-      const newConv = await prisma.conversation.create({
-        data: {
-          participants: {
-            create: [{ userId: payload.userId }, { userId: contactUser.id }],
-          },
-        },
+    if (existing) {
+      if (existing.status === "ACCEPTED") {
+        return NextResponse.json({ error: "Already connected" }, { status: 400 });
+      }
+      if (existing.status === "PENDING") {
+        return NextResponse.json({ error: "Request already sent" }, { status: 400 });
+      }
+      // DECLINED — allow re-sending by resetting status
+      await prisma.contact.update({
+        where: { id: existing.id },
+        data: { status: "PENDING" },
       });
-      conversationId = newConv.id;
+    } else {
+      await prisma.contact.create({
+        data: { userId: payload.userId, contactId: contactUser.id, status: "PENDING" },
+      });
     }
 
-    // Notify both users via Socket.io so their sidebars update immediately —
-    // no page refresh needed. Each user's socket auto-joins the new room and
-    // calls fetchConversations() on the client side.
-    if (conversationId) {
-      const io = getIO();
-      if (io) {
-        const payload_event = { conversationId };
-        // Notify the contact (User B) — new conversation appeared for them
-        io.to(`user:${contactUser.id}`).emit(SOCKET_EVENTS.NEW_CONVERSATION, payload_event);
-        // Also notify User A — their socket joins the room immediately so they
-        // can receive messages before they click on the conversation
-        io.to(`user:${payload.userId}`).emit(SOCKET_EVENTS.NEW_CONVERSATION, payload_event);
-      }
+    // Notify User B in real time — their requests badge updates instantly
+    const io = getIO();
+    if (io) {
+      io.to(`user:${contactUser.id}`).emit(SOCKET_EVENTS.CONTACT_REQUEST, {
+        fromUserId: payload.userId,
+        fromUserName: currentUser?.name,
+      });
     }
 
     return NextResponse.json({ contact: contactUser });

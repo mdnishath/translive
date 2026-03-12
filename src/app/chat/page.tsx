@@ -16,11 +16,14 @@ export default function ChatPage() {
   const {
     setConversations,
     updateLastMessage,
+    removeConversation,
     addOnlineUser,
     removeOnlineUser,
     setOnlineUsers,
     incrementUnread,
     clearUnread,
+    setPendingRequests,
+    removePendingRequest,
   } = useChatStore();
 
   // ── Local UI state ────────────────────────────────────────────────
@@ -36,7 +39,7 @@ export default function ChatPage() {
   selectedRef.current = selected;
 
   // ── Data fetching ─────────────────────────────────────────────────
-  // Defined BEFORE useSocket so it can be passed as onNewConversation callback.
+  // Defined BEFORE useSocket so they can be passed as callbacks.
 
   const fetchConversations = useCallback(async () => {
     setConvError(false);
@@ -56,9 +59,24 @@ export default function ChatPage() {
     }
   }, [setConversations]);
 
+  const fetchPendingRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/contacts/requests");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingRequests(data.requests);
+      }
+    } catch {
+      // Non-critical — silently fail
+    }
+  }, [setPendingRequests]);
+
   useEffect(() => {
-    if (user) fetchConversations();
-  }, [user, fetchConversations]);
+    if (user) {
+      fetchConversations();
+      fetchPendingRequests();
+    }
+  }, [user, fetchConversations, fetchPendingRequests]);
 
   // ── Socket message handlers ───────────────────────────────────────
 
@@ -81,6 +99,29 @@ export default function ChatPage() {
     }
   }, [updateLastMessage, incrementUnread]);
 
+  /** Someone sent us a contact request — refresh the pending list so the badge updates. */
+  const handleContactRequest = useCallback(() => {
+    fetchPendingRequests();
+  }, [fetchPendingRequests]);
+
+  /** Our contact request was accepted — refresh conversations so the new one appears. */
+  const handleContactAccepted = useCallback(() => {
+    fetchConversations();
+    fetchPendingRequests();
+  }, [fetchConversations, fetchPendingRequests]);
+
+  /** A participant left a conversation — remove it from the sidebar. */
+  const handleConversationLeft = useCallback(
+    ({ conversationId }: { conversationId: string; userId: string }) => {
+      removeConversation(conversationId);
+      if (selectedRef.current?.id === conversationId) {
+        setSelected(null);
+        setMobileView("list");
+      }
+    },
+    [removeConversation]
+  );
+
   const socket = useSocket({
     onUserOnline: addOnlineUser,
     onUserOffline: removeOnlineUser,
@@ -89,6 +130,9 @@ export default function ChatPage() {
     // When the server notifies us of a new conversation (either we added someone,
     // or someone added us), refresh the sidebar immediately — no page reload needed.
     onNewConversation: fetchConversations,
+    onContactRequest: handleContactRequest,
+    onContactAccepted: handleContactAccepted,
+    onConversationLeft: handleConversationLeft,
   });
 
   // ── Fix #26: Update sidebar when the current user's own message is confirmed ─
@@ -122,12 +166,43 @@ export default function ChatPage() {
       body: JSON.stringify({ email }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to add contact");
-    // User A's sidebar is updated via the onNewConversation socket callback
-    // that the server emits back to them. fetchConversations here is a fallback
-    // in case the socket event arrives before the DB write is visible.
-    await fetchConversations();
+    if (!res.ok) throw new Error(data.error || "Failed to send request");
+    // The sidebar will update via the onNewConversation socket event from server
     return { name: data.contact.name };
+  }
+
+  async function handleAcceptRequest(contactId: string): Promise<void> {
+    const res = await fetch(`/api/contacts/${contactId}/accept`, { method: "PATCH" });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to accept");
+    }
+    removePendingRequest(contactId);
+    // fetchConversations is triggered by the NEW_CONVERSATION socket event
+  }
+
+  async function handleDeclineRequest(contactId: string): Promise<void> {
+    const res = await fetch(`/api/contacts/${contactId}/decline`, { method: "PATCH" });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to decline");
+    }
+    removePendingRequest(contactId);
+  }
+
+  async function handleLeaveConversation() {
+    if (!selected) return;
+    const contactName = selected.contact?.name ?? "this conversation";
+    if (!window.confirm(`Leave conversation with ${contactName}?\n\nYou'll need to be re-added to rejoin.`)) return;
+
+    const res = await fetch(`/api/conversations/${selected.id}/leave`, { method: "PATCH" });
+    if (res.ok) {
+      // The CONVERSATION_LEFT socket event will fire and trigger handleConversationLeft,
+      // but handle locally as a fallback in case the socket event is delayed.
+      removeConversation(selected.id);
+      setSelected(null);
+      setMobileView("list");
+    }
   }
 
   function handleSelectConversation(conv: ConversationItem) {
@@ -220,13 +295,15 @@ export default function ChatPage() {
             mobileView === "chat" ? "hidden md:flex" : "flex"
           } flex-col`}
         >
-          {/* ContactList subscribes to conversations/onlineUserIds/unreadCounts
+          {/* ContactList subscribes to conversations/onlineUserIds/unreadCounts/pendingRequests
               directly from the Zustand store — no prop-drilling needed */}
           <ContactList
             selectedId={selected?.id ?? null}
             currentUserId={user.id}
             onSelect={handleSelectConversation}
             onAddContact={handleAddContact}
+            onAcceptRequest={handleAcceptRequest}
+            onDeclineRequest={handleDeclineRequest}
             loading={convLoading}
           />
         </div>
@@ -243,6 +320,7 @@ export default function ChatPage() {
               currentUserLanguage={user.language}
               socket={socket}
               onBack={() => setMobileView("list")}
+              onLeave={handleLeaveConversation}
             />
           ) : (
             /* Empty state shown on desktop when no conversation is selected */

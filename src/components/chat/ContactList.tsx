@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { avatarGradient, getInitials } from "@/lib/utils/avatar";
 // Read shared chat state from the Zustand store — only re-renders when the
 // subscribed slice changes (e.g. a new message arrives), not on unrelated updates.
-import { useChatStore } from "@/store/chatStore";
+import { useChatStore, PendingRequest } from "@/store/chatStore";
 
 export interface ConversationItem {
   id: string;
@@ -32,6 +32,8 @@ interface ContactListProps {
   currentUserId: string;
   onSelect: (conv: ConversationItem) => void;
   onAddContact: (email: string) => Promise<{ name: string }>;
+  onAcceptRequest: (id: string) => Promise<void>;
+  onDeclineRequest: (id: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -45,19 +47,103 @@ function formatTime(dateStr: string) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+/** Inline spinner for loading states inside small buttons */
+function Spinner() {
+  return (
+    <div className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+  );
+}
+
+/** A single pending contact request row with Accept / Decline buttons */
+function RequestRow({
+  request,
+  onAccept,
+  onDecline,
+}: {
+  request: PendingRequest;
+  onAccept: (id: string) => Promise<void>;
+  onDecline: (id: string) => Promise<void>;
+}) {
+  const [accepting, setAccepting] = useState(false);
+  const [declining, setDeclining] = useState(false);
+  const busy = accepting || declining;
+
+  async function handleAccept() {
+    setAccepting(true);
+    try { await onAccept(request.id); } finally { setAccepting(false); }
+  }
+
+  async function handleDecline() {
+    setDeclining(true);
+    try { await onDecline(request.id); } finally { setDeclining(false); }
+  }
+
+  return (
+    <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl">
+      <div
+        className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(request.from.id)} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}
+        aria-label={`${request.from.name}'s avatar`}
+        role="img"
+      >
+        {getInitials(request.from.name)}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-white truncate leading-tight">{request.from.name}</p>
+        <p className="text-[10px] text-slate-500 truncate">{request.from.email}</p>
+      </div>
+
+      <div className="flex gap-1.5 flex-shrink-0">
+        {/* Decline */}
+        <button
+          onClick={handleDecline}
+          disabled={busy}
+          aria-label={`Decline ${request.from.name}'s request`}
+          title="Decline"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-all disabled:opacity-40"
+        >
+          {declining ? <Spinner /> : (
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          )}
+        </button>
+
+        {/* Accept */}
+        <button
+          onClick={handleAccept}
+          disabled={busy}
+          aria-label={`Accept ${request.from.name}'s request`}
+          title="Accept"
+          className="w-7 h-7 flex items-center justify-center rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-all disabled:opacity-40"
+        >
+          {accepting ? <Spinner /> : (
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ContactList({
   selectedId,
   currentUserId,
   onSelect,
   onAddContact,
+  onAcceptRequest,
+  onDeclineRequest,
   loading,
 }: ContactListProps) {
   // Subscribe to only the store slices this component needs.
   // Zustand ensures ContactList re-renders ONLY when conversations,
-  // onlineUserIds, or unreadCounts change — not on other store mutations.
+  // onlineUserIds, unreadCounts, or pendingRequests change.
   const conversations = useChatStore((state) => state.conversations);
   const onlineUserIds = useChatStore((state) => state.onlineUserIds);
   const unreadCounts = useChatStore((state) => state.unreadCounts);
+  const pendingRequests = useChatStore((state) => state.pendingRequests);
 
   const [search, setSearch] = useState("");
   // Fix #20: Debounced search — filter only after 200ms of inactivity
@@ -88,8 +174,7 @@ export default function ContactList({
       const result = await onAddContact(addEmail);
       setAddSuccess(result.name);
       setAddEmail("");
-      // Fix #21: Longer timeout (4s was 2.2s) and don't auto-close the form —
-      // lets the user add another contact without having to reopen the panel.
+      // Fix #21: Longer timeout so user can add another contact without reopening panel
       setTimeout(() => setAddSuccess(null), 4000);
     } catch (err: unknown) {
       setAddError(err instanceof Error ? err.message : "User not found");
@@ -110,20 +195,31 @@ export default function ContactList({
               {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <button
-            onClick={() => { setShowAdd((v) => !v); setAddError(""); setAddSuccess(null); }}
-            aria-label={showAdd ? "Close add contact" : "Add new contact"}
-            className={`w-9 h-9 flex items-center justify-center rounded-2xl transition-all duration-200 ${
-              showAdd
-                ? "bg-[#6C63FF] text-white shadow-lg shadow-[#6C63FF]/30"
-                : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
-            }`}
-            title="Add contact"
-          >
-            <svg className={`w-4 h-4 transition-transform duration-200 ${showAdd ? "rotate-45" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
+          {/* + button with pending-request badge */}
+          <div className="relative">
+            {pendingRequests.length > 0 && (
+              <span
+                className="absolute -top-1 -right-1 z-10 min-w-[16px] h-4 rounded-full bg-red-500 border-2 border-[#0d1424] text-[9px] font-bold text-white flex items-center justify-center px-0.5"
+                aria-label={`${pendingRequests.length} contact request${pendingRequests.length !== 1 ? "s" : ""}`}
+              >
+                {pendingRequests.length > 9 ? "9+" : pendingRequests.length}
+              </span>
+            )}
+            <button
+              onClick={() => { setShowAdd((v) => !v); setAddError(""); setAddSuccess(null); }}
+              aria-label={showAdd ? "Close add contact" : "Add new contact"}
+              className={`w-9 h-9 flex items-center justify-center rounded-2xl transition-all duration-200 ${
+                showAdd
+                  ? "bg-[#6C63FF] text-white shadow-lg shadow-[#6C63FF]/30"
+                  : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
+              }`}
+              title="Add contact"
+            >
+              <svg className={`w-4 h-4 transition-transform duration-200 ${showAdd ? "rotate-45" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Add contact panel */}
@@ -137,8 +233,8 @@ export default function ContactList({
                   </svg>
                 </div>
                 <div>
-                  <p className="text-emerald-400 text-sm font-semibold">{addSuccess} added!</p>
-                  <p className="text-emerald-600 text-xs">Conversation ready — tap to close or add another</p>
+                  <p className="text-emerald-400 text-sm font-semibold">Request sent to {addSuccess}!</p>
+                  <p className="text-emerald-600 text-xs">They will need to accept before you can chat</p>
                 </div>
               </div>
             ) : (
@@ -166,7 +262,7 @@ export default function ContactList({
                   >
                     {addLoading
                       ? <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                      : "Add"
+                      : "Send"
                     }
                   </button>
                 </div>
@@ -206,6 +302,33 @@ export default function ContactList({
         </div>
       </div>
 
+      {/* Contact requests section — only shown when there are pending requests */}
+      {pendingRequests.length > 0 && (
+        <div className="border-b border-white/5 bg-[#6C63FF]/5 px-3 py-2.5">
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <svg className="w-3 h-3 text-[#6C63FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6C63FF]">
+              Contact Requests
+            </span>
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#6C63FF] text-[9px] font-bold text-white px-1">
+              {pendingRequests.length}
+            </span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {pendingRequests.map((req) => (
+              <RequestRow
+                key={req.id}
+                request={req}
+                onAccept={onAcceptRequest}
+                onDecline={onDeclineRequest}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto py-1.5 px-2" role="list" aria-label="Conversations">
         {loading ? (
@@ -229,7 +352,7 @@ export default function ContactList({
               {search ? "No results" : "No conversations yet"}
             </p>
             <p className="text-slate-600 text-xs mt-1.5 max-w-[180px] leading-relaxed">
-              {search ? "Try a different search term" : "Tap + to add someone and start chatting!"}
+              {search ? "Try a different search term" : "Tap + to send a contact request!"}
             </p>
           </div>
         ) : (

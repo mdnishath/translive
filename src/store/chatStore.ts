@@ -12,6 +12,7 @@
  *  - Conversations list + last-message preview       → ChatPage, ContactList
  *  - Online presence (Set of userIds)                → ContactList, ChatWindow
  *  - Unread counts per conversation                  → ContactList
+ *  - Pending contact requests                        → ContactList
  *
  * Server data (conversations) is still fetched via REST (fetch) and stored
  * here so every subscriber sees the same cached copy without prop-drilling.
@@ -20,6 +21,19 @@
 import { create } from "zustand";
 import { ConversationItem } from "@/components/chat/ContactList";
 
+/** A pending incoming contact request — fetched from GET /api/contacts/requests */
+export interface PendingRequest {
+  id: string; // contact record id — used for accept/decline endpoints
+  from: {
+    id: string;
+    name: string;
+    email: string;
+    language: string;
+    avatar: string | null;
+  };
+  createdAt: string;
+}
+
 interface ChatState {
   // ── Data ────────────────────────────────────────────────────────────
   conversations: ConversationItem[];
@@ -27,6 +41,8 @@ interface ChatState {
   onlineUserIds: Set<string>;
   /** Unread message count per conversationId. */
   unreadCounts: Record<string, number>;
+  /** Incoming contact requests waiting for accept/decline. */
+  pendingRequests: PendingRequest[];
 
   // ── Conversation actions ────────────────────────────────────────────
   setConversations: (convs: ConversationItem[]) => void;
@@ -34,6 +50,7 @@ interface ChatState {
     conversationId: string,
     lastMessage: ConversationItem["lastMessage"]
   ) => void;
+  removeConversation: (conversationId: string) => void;
 
   // ── Presence actions ────────────────────────────────────────────────
   addOnlineUser: (userId: string) => void;
@@ -43,12 +60,17 @@ interface ChatState {
   // ── Unread actions ──────────────────────────────────────────────────
   incrementUnread: (conversationId: string) => void;
   clearUnread: (conversationId: string) => void;
+
+  // ── Contact request actions ─────────────────────────────────────────
+  setPendingRequests: (requests: PendingRequest[]) => void;
+  removePendingRequest: (id: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
   conversations: [],
   onlineUserIds: new Set(),
   unreadCounts: {},
+  pendingRequests: [],
 
   // ── Conversation mutations ─────────────────────────────────────────
 
@@ -59,6 +81,11 @@ export const useChatStore = create<ChatState>((set) => ({
       conversations: state.conversations.map((conv) =>
         conv.id !== conversationId ? conv : { ...conv, lastMessage }
       ),
+    })),
+
+  removeConversation: (conversationId) =>
+    set((state) => ({
+      conversations: state.conversations.filter((c) => c.id !== conversationId),
     })),
 
   // ── Presence mutations ─────────────────────────────────────────────
@@ -91,5 +118,14 @@ export const useChatStore = create<ChatState>((set) => ({
   clearUnread: (conversationId) =>
     set((state) => ({
       unreadCounts: { ...state.unreadCounts, [conversationId]: 0 },
+    })),
+
+  // ── Contact request mutations ──────────────────────────────────────
+
+  setPendingRequests: (pendingRequests) => set({ pendingRequests }),
+
+  removePendingRequest: (id) =>
+    set((state) => ({
+      pendingRequests: state.pendingRequests.filter((r) => r.id !== id),
     })),
 }));

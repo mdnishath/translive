@@ -13,9 +13,10 @@ interface ChatHeaderProps {
   isOnline?: boolean;
   isTyping?: boolean;
   onBack?: () => void;
+  onLeave?: () => void;
 }
 
-export default function ChatHeader({ contact, isOnline, isTyping, onBack }: ChatHeaderProps) {
+export default function ChatHeader({ contact, isOnline, isTyping, onBack, onLeave }: ChatHeaderProps) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5" style={{ background: "#0d1424" }}>
 
@@ -97,8 +98,9 @@ export default function ChatHeader({ contact, isOnline, isTyping, onBack }: Chat
         <span className="text-[10px] text-[#4ECDC4] font-medium whitespace-nowrap">Auto-translate</span>
       </div>
 
-      {/* Call buttons (disabled until Session 13) */}
+      {/* Action buttons */}
       <div className="flex items-center gap-1">
+        {/* Call buttons (disabled until Session 13) */}
         <button
           disabled
           title="Voice call — coming soon"
@@ -119,6 +121,20 @@ export default function ChatHeader({ contact, isOnline, isTyping, onBack }: Chat
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
         </button>
+
+        {/* Leave conversation — exit/door icon */}
+        {onLeave && (
+          <button
+            onClick={onLeave}
+            title="Leave conversation"
+            aria-label="Leave conversation"
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+          >
+            <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );
