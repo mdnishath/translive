@@ -16,9 +16,9 @@ export const DEEPGRAM_CONFIG = {
 } as const;
 
 export const GOOGLE_TTS_CONFIG = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Standard-A" },
-  fr: { languageCode: "fr-FR", name: "fr-FR-Standard-A" },
-  en: { languageCode: "en-US", name: "en-US-Standard-A" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A" },
+  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A" },
+  en: { languageCode: "en-US", name: "en-US-Wavenet-D" },
 } as const;
 
 export const AUDIO_CONFIG = {

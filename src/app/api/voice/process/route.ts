@@ -17,9 +17,9 @@ const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
 
 const GOOGLE_TTS_CONFIG: Record<string, { languageCode: string; name: string }> = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Standard-A" },
-  fr: { languageCode: "fr-FR", name: "fr-FR-Standard-A" },
-  en: { languageCode: "en-US", name: "en-US-Standard-A" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A" },
+  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A" },
+  en: { languageCode: "en-US", name: "en-US-Wavenet-D" },
 };
 
 // ── STT ──────────────────────────────────────────────────────
