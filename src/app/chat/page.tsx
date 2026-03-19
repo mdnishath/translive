@@ -440,7 +440,7 @@ export default function ChatPage() {
   // ── Render ────────────────────────────────────────────────────────
 
   return (
-    <div className="h-screen h-[100dvh] bg-[#0a0f1e] flex flex-col overflow-hidden">
+    <div className="chat-shell bg-[#0a0f1e] flex flex-col">
 
       {/* Top navigation bar */}
       <div className="bg-[#111827] border-b border-[#1f2d4a] px-4 py-2.5 flex items-center justify-between flex-shrink-0">

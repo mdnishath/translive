@@ -10,6 +10,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Mobile chat page — prevent bounce scroll, fit to viewport */
+.chat-shell {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
 /* ── Scrollbar ─────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
