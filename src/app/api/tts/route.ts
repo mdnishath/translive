@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
         voice: {
           languageCode: voiceConfig.languageCode,
           name: voiceConfig.name,
+          ssmlGender: voiceConfig.ssmlGender,
         },
         audioConfig: {
           audioEncoding: "MP3",

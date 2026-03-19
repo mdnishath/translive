@@ -76,10 +76,10 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string }> = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A" },
-  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A" },
-  en: { languageCode: "en-US", name: "en-US-Wavenet-D" },
+const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
+  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
+  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
+  en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 };
 
 /** Convert audio to clean OGG/Opus via ffmpeg for reliable STT processing. */
@@ -145,7 +145,7 @@ async function ttsGoogle(text: string, language: string): Promise<string | null>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input: { text },
-      voice: { languageCode: voice.languageCode, name: voice.name },
+      voice: { languageCode: voice.languageCode, name: voice.name, ssmlGender: voice.ssmlGender },
       audioConfig: { audioEncoding: "MP3", speakingRate: 0.85, pitch: 0 },
     }),
   });

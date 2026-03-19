@@ -16,9 +16,9 @@ export const DEEPGRAM_CONFIG = {
 } as const;
 
 export const GOOGLE_TTS_CONFIG = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A" },
-  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A" },
-  en: { languageCode: "en-US", name: "en-US-Wavenet-D" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
+  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
+  en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 } as const;
 
 export const AUDIO_CONFIG = {
