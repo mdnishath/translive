@@ -76,9 +76,9 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GEMINI_TTS_URL = "https://texttospeech.googleapis.com/v1beta1/text:synthesize";
+const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
 const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Despina", ssmlGender: "FEMALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 };
@@ -142,7 +142,7 @@ async function sttDeepgram(audioBuffer: Buffer, language: string): Promise<strin
   return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
 }
 
-// Gemini Pro TTS — natural, expressive voices (primary)
+// Gemini TTS — natural, expressive voices via Generative Language API
 async function ttsGemini(text: string, language: string): Promise<string | null> {
   if (!GOOGLE_API_KEY || !text.trim()) return null;
   const voice = GEMINI_TTS_VOICES[language];
@@ -153,31 +153,49 @@ async function ttsGemini(text: string, language: string): Promise<string | null>
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        input: {
-          text,
-          prompt: "Read aloud in a warm, welcoming tone.",
-        },
-        voice: {
-          languageCode: voice.languageCode,
-          name: voice.voiceName,
-          modelName: "gemini-2.5-pro-tts",
-        },
-        audioConfig: {
-          audioEncoding: "LINEAR16",
-          speakingRate: 1,
-          pitch: 0,
+        contents: [
+          {
+            parts: [
+              { text: `Say the following in a warm, clear, welcoming tone:\n\n${text}` },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: voice.voiceName,
+              },
+            },
+          },
         },
       }),
     });
 
     if (!res.ok) {
-      console.error("[tts] Gemini Pro TTS failed:", res.status, await res.text());
+      const errText = await res.text();
+      console.error("[tts] Gemini TTS failed:", res.status, errText);
       return null;
     }
+
     const data = await res.json();
-    return data.audioContent || null;
+
+    // Extract audio from Gemini response
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if (parts) {
+      for (const part of parts) {
+        if (part.inlineData?.mimeType?.startsWith("audio/")) {
+          console.log("[tts] ✓ Gemini TTS success, mime:", part.inlineData.mimeType);
+          return part.inlineData.data; // base64 audio
+        }
+      }
+    }
+
+    console.error("[tts] Gemini TTS: no audio in response");
+    return null;
   } catch (err) {
-    console.error("[tts] Gemini Pro TTS error:", err);
+    console.error("[tts] Gemini TTS error:", err);
     return null;
   }
 }
@@ -306,20 +324,30 @@ async function processVoiceMessage(
     //   }
     // }
 
-    // Try Gemini Pro TTS first (natural voice), fallback to Wavenet
+    // Bengali: Chirp3-HD-Despina (best Bengali voice via Cloud TTS)
+    // English/French: Gemini TTS (natural) → Wavenet fallback
     {
-      console.log("[voice] Trying Gemini Pro TTS (Despina/Aoede/Kore)...");
-      const audioBase64 = await ttsGemini(translatedText, targetLang);
+      let audioBase64: string | null = null;
+
+      if (targetLang === "bn") {
+        // Bengali — use Chirp3-HD-Despina (Gemini TTS doesn't support Bengali)
+        console.log("[voice] Using Chirp3-HD-Despina for Bengali...");
+        audioBase64 = await ttsGoogle(translatedText, targetLang);
+      } else {
+        // English/French — try Gemini TTS first
+        console.log("[voice] Trying Gemini TTS...");
+        audioBase64 = await ttsGemini(translatedText, targetLang);
+      }
+
+      // Fallback to Google Cloud TTS
+      if (!audioBase64) {
+        console.log("[voice] Falling back to Google Cloud TTS...");
+        audioBase64 = await ttsGoogle(translatedText, targetLang);
+      }
+
       if (audioBase64) {
         audioData = Buffer.from(audioBase64, "base64");
-        console.log("[voice] ✓ Gemini Pro TTS success");
-      } else {
-        console.log("[voice] Gemini TTS failed, falling back to Wavenet...");
-        const wavenetBase64 = await ttsGoogle(translatedText, targetLang);
-        if (wavenetBase64) {
-          audioData = Buffer.from(wavenetBase64, "base64");
-          console.log("[voice] ✓ Wavenet TTS fallback success");
-        }
+        console.log("[voice] ✓ TTS success");
       }
     }
 

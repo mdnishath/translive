@@ -15,10 +15,10 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GEMINI_TTS_URL = "https://texttospeech.googleapis.com/v1beta1/text:synthesize";
+const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
 
 const GOOGLE_TTS_CONFIG: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Despina", ssmlGender: "FEMALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 };
@@ -89,7 +89,7 @@ async function transcribe(audioBuffer: Buffer, language: string): Promise<string
 async function synthesizeTTS(text: string, language: string): Promise<string | null> {
   if (!GOOGLE_API_KEY || !text.trim()) return null;
 
-  // Try Gemini Pro TTS first
+  // Try Gemini TTS first (natural voices)
   const geminiVoice = GEMINI_TTS_VOICES[language];
   if (geminiVoice) {
     try {
@@ -97,18 +97,35 @@ async function synthesizeTTS(text: string, language: string): Promise<string | n
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          input: { text, prompt: "Read aloud in a warm, welcoming tone." },
-          voice: {
-            languageCode: geminiVoice.languageCode,
-            name: geminiVoice.voiceName,
-            modelName: "gemini-2.5-pro-tts",
+          contents: [
+            {
+              parts: [
+                { text: `Say the following in a warm, clear, welcoming tone:\n\n${text}` },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: geminiVoice.voiceName,
+                },
+              },
+            },
           },
-          audioConfig: { audioEncoding: "LINEAR16", speakingRate: 1, pitch: 0 },
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.audioContent) return data.audioContent;
+        const parts = data?.candidates?.[0]?.content?.parts;
+        if (parts) {
+          for (const part of parts) {
+            if (part.inlineData?.mimeType?.startsWith("audio/")) {
+              return part.inlineData.data;
+            }
+          }
+        }
       }
     } catch (err) {
       console.error("[voice/process] Gemini TTS failed:", err);

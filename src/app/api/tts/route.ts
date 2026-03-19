@@ -9,7 +9,7 @@ import type { Language } from "@/types";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GEMINI_TTS_URL = "https://texttospeech.googleapis.com/v1beta1/text:synthesize";
+const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,31 +40,40 @@ export async function POST(request: NextRequest) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            input: {
-              text,
-              prompt: "Read aloud in a warm, welcoming tone.",
-            },
-            voice: {
-              languageCode: geminiVoice.languageCode,
-              name: geminiVoice.voiceName,
-              modelName: "gemini-2.5-pro-tts",
-            },
-            audioConfig: {
-              audioEncoding: "LINEAR16",
-              speakingRate: 1,
-              pitch: 0,
+            contents: [
+              {
+                parts: [
+                  { text: `Say the following in a warm, clear, welcoming tone:\n\n${text}` },
+                ],
+              },
+            ],
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: geminiVoice.voiceName,
+                  },
+                },
+              },
             },
           }),
         });
 
         if (response.ok) {
           const data = await response.json();
-          if (data.audioContent) {
-            return NextResponse.json({
-              audioContent: data.audioContent,
-              language,
-              engine: "gemini-pro-tts",
-            });
+          const parts = data?.candidates?.[0]?.content?.parts;
+          if (parts) {
+            for (const part of parts) {
+              if (part.inlineData?.mimeType?.startsWith("audio/")) {
+                return NextResponse.json({
+                  audioContent: part.inlineData.data,
+                  language,
+                  engine: "gemini-tts",
+                  mimeType: part.inlineData.mimeType,
+                });
+              }
+            }
           }
         } else {
           console.error("[tts] Gemini TTS failed:", response.status);

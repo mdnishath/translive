@@ -24,7 +24,7 @@ export const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName
 
 // Fallback: Google Cloud Wavenet voices
 export const GOOGLE_TTS_CONFIG = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Despina", ssmlGender: "FEMALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 } as const;
