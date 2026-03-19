@@ -111,6 +111,11 @@ export async function ttsWithClonedVoice(
       modelId: MULTILINGUAL_MODEL,
       ...(langCode ? { languageCode: langCode } : {}),
       outputFormat: "mp3_44100_128",
+      voiceSettings: {
+        stability: 0.65,
+        similarityBoost: 0.75,
+        speed: 0.85,
+      },
     });
 
     // Collect the response into a buffer
