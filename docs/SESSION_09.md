@@ -1,6 +1,6 @@
 # Session 09: Smart Translation (Claude API + Caching)
 
-## Status: PENDING
+## Status: DONE
 ## Prerequisite: Session 08 completed (Auto-translation working)
 
 ## Goal:
@@ -41,11 +41,11 @@ Install Redis or use in-memory Map:
 - Fallback to Google-only if Claude is slow/unavailable
 
 ## Success Criteria:
-- [ ] Messages first show Google translation (instant)
-- [ ] Claude refined version updates automatically (1-2s later)
-- [ ] Cached translations load instantly (no API call)
-- [ ] "Refined" indicator shows on Claude-translated messages
-- [ ] Works even if Claude API is down (falls back to Google)
+- [x] Messages first show Google translation (instant)
+- [x] Claude refined version updates automatically (1-2s later)
+- [x] Cached translations load instantly (no API call)
+- [x] "Refined" indicator shows on Claude-translated messages
+- [x] Works even if Claude API is down (falls back to Google)
 
 ## Files to create/modify:
 - `src/services/smartTranslation.ts`

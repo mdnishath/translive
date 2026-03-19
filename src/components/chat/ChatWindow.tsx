@@ -12,8 +12,11 @@ interface SocketActions {
   connected: boolean;
   joinConversation: (id: string) => void;
   sendMessage: (conversationId: string, content: string, tempId: string) => void;
+  sendVoiceMessage: (conversationId: string, audioUrl: string, tempId: string) => void;
   startTyping: (conversationId: string) => void;
   stopTyping: (conversationId: string) => void;
+  notifyMessageDeleted?: (conversationId: string, messageId: string) => void;
+  notifyMessagesRead?: (conversationId: string, readAt: string) => void;
 }
 
 interface ChatWindowProps {
@@ -25,6 +28,9 @@ interface ChatWindowProps {
   socket: SocketActions;
   onBack?: () => void;
   onLeave?: () => void;
+  onDisconnect?: () => void;
+  onClearChat?: () => void;
+  onBlock?: () => void;
 }
 
 /** After this many ms without a message_saved confirmation, mark the message as failed. */
@@ -40,6 +46,9 @@ export default function ChatWindow({
   socket,
   onBack,
   onLeave,
+  onDisconnect,
+  onClearChat,
+  onBlock,
 }: ChatWindowProps) {
   // Subscribe to only the contact's online status — re-renders only when their
   // presence changes, not on any other store mutation.
@@ -55,6 +64,8 @@ export default function ChatWindow({
   /** Whether there are older messages to load (pagination). */
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** Tracks when the contact last read this conversation (for read receipts) */
+  const [contactLastReadAt, setContactLastReadAt] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -128,6 +139,46 @@ export default function ChatWindow({
     }
   }, [conversation.id]);
 
+  // ── Batch translate untranslated messages ─────────────────────────
+  // After messages load, find TEXT messages from the other user that have
+  // no translatedContent and request batch translation from the server.
+  useEffect(() => {
+    const untranslated = messages.filter(
+      (m) =>
+        m.messageType === "TEXT" &&
+        m.originalLanguage !== currentUserLanguage &&
+        !m.translatedContent &&
+        !m.id.startsWith("temp-")
+    );
+    if (untranslated.length === 0) return;
+
+    const ids = untranslated.map((m) => m.id);
+    let cancelled = false;
+
+    fetch("/api/messages/translate-batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageIds: ids }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data.translated?.length) return;
+        const map = new Map(
+          data.translated.map((t: { id: string; translatedContent: string; translatedLanguage: string }) => [t.id, t])
+        );
+        setMessages((prev) =>
+          prev.map((m) => {
+            const t = map.get(m.id) as { translatedContent: string; translatedLanguage: string } | undefined;
+            return t ? { ...m, translatedContent: t.translatedContent } : m;
+          })
+        );
+      })
+      .catch(() => {/* translation failure is non-critical */});
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, currentUserLanguage]);
+
   // Reset all state when the conversation changes
   useEffect(() => {
     setLoading(true);
@@ -135,18 +186,40 @@ export default function ChatWindow({
     setIsContactTyping(false);
     setFailedIds(new Set());
     setHasMore(false);
+    setContactLastReadAt(null);
     fetchDoneRef.current = false;
     socketBufferRef.current = [];
 
     fetchMessages();
     socket.joinConversation(conversation.id);
 
+    // Mark conversation as read + fetch contact's lastReadAt for read receipts
+    (async () => {
+      const readRes = await fetch(`/api/conversations/${conversation.id}/read`, { method: "PATCH" });
+      if (readRes.ok) {
+        const { lastReadAt: myReadAt } = await readRes.json();
+        // Notify the other user we've read their messages
+        socket.notifyMessagesRead?.(conversation.id, myReadAt);
+      }
+      // Fetch contact's lastReadAt from the participants list
+      const convRes = await fetch(`/api/conversations/${conversation.id}`);
+      if (convRes.ok) {
+        const convData = await convRes.json();
+        const contactPart = convData.participants?.find(
+          (p: { userId: string }) => p.userId !== currentUserId
+        );
+        if (contactPart?.lastReadAt) {
+          setContactLastReadAt(contactPart.lastReadAt);
+        }
+      }
+    })();
+
     // Clear all pending send-timeouts when leaving the conversation
     return () => {
       pendingTimeoutsRef.current.forEach((t) => clearTimeout(t));
       pendingTimeoutsRef.current.clear();
     };
-  }, [conversation.id, fetchMessages, socket]);
+  }, [conversation.id, fetchMessages, socket, currentUserId]);
 
   // ── Scroll helpers ────────────────────────────────────────────────
 
@@ -193,6 +266,16 @@ export default function ChatWindow({
         return [...prev, message];
       });
       setIsContactTyping(false);
+
+      // Auto-mark as read since user is viewing this conversation
+      fetch(`/api/conversations/${conversation.id}/read`, { method: "PATCH" })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data?.lastReadAt) {
+            socket.notifyMessagesRead?.(conversation.id, data.lastReadAt);
+          }
+        })
+        .catch(() => {});
     }
 
     function onSaved(e: CustomEvent) {
@@ -228,11 +311,59 @@ export default function ChatWindow({
       setIsContactTyping(false);
     }
 
+    function onMessageDeleted(e: CustomEvent) {
+      const { messageId, conversationId } = e.detail as { messageId: string; conversationId: string };
+      if (conversationId !== conversation.id) return;
+      setMessages((prev) =>
+        prev.map((m) => m.id === messageId ? { ...m, deletedForEveryone: true, content: "" } : m)
+      );
+    }
+
+    function onMessagesRead(e: CustomEvent) {
+      const { conversationId, readAt } = e.detail as { conversationId: string; readAt: string };
+      if (conversationId !== conversation.id) return;
+      setContactLastReadAt(readAt);
+    }
+
+    function onTranslationRefined(e: CustomEvent) {
+      const { messageId, refined, conversationId } = e.detail as {
+        messageId: string; refined: string; conversationId: string;
+      };
+      if (conversationId !== conversation.id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, translatedContent: refined, translationEngine: "claude" as const }
+            : m
+        )
+      );
+    }
+
+    function onVoiceProcessed(e: CustomEvent) {
+      const { messageId, conversationId, transcript, translatedText, translatedAudioUrl, engine } = e.detail as {
+        messageId: string; conversationId: string;
+        transcript: string; translatedText: string | null; translatedAudioUrl: string | null;
+        engine?: "google" | "claude";
+      };
+      if (conversationId !== conversation.id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, content: transcript, translatedContent: translatedText, translatedAudioUrl, translationEngine: engine ?? "google" }
+            : m
+        )
+      );
+    }
+
     window.addEventListener("socket:receive_message", onReceive as EventListener);
     window.addEventListener("socket:message_saved", onSaved as EventListener);
     window.addEventListener("socket:message_error", onError as EventListener);
     window.addEventListener("socket:user_typing", onTyping as EventListener);
     window.addEventListener("socket:user_stop_typing", onStopTyping as EventListener);
+    window.addEventListener("socket:message_deleted", onMessageDeleted as EventListener);
+    window.addEventListener("socket:messages_read", onMessagesRead as EventListener);
+    window.addEventListener("socket:translation_refined", onTranslationRefined as EventListener);
+    window.addEventListener("socket:voice_processed", onVoiceProcessed as EventListener);
 
     return () => {
       window.removeEventListener("socket:receive_message", onReceive as EventListener);
@@ -240,6 +371,10 @@ export default function ChatWindow({
       window.removeEventListener("socket:message_error", onError as EventListener);
       window.removeEventListener("socket:user_typing", onTyping as EventListener);
       window.removeEventListener("socket:user_stop_typing", onStopTyping as EventListener);
+      window.removeEventListener("socket:message_deleted", onMessageDeleted as EventListener);
+      window.removeEventListener("socket:messages_read", onMessagesRead as EventListener);
+      window.removeEventListener("socket:translation_refined", onTranslationRefined as EventListener);
+      window.removeEventListener("socket:voice_processed", onVoiceProcessed as EventListener);
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [conversation.id, currentUserId]);
@@ -296,6 +431,38 @@ export default function ChatWindow({
     }
   }
 
+  // ── Send voice message ──────────────────────────────────────────
+
+  function handleSendVoice(audioUrl: string) {
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Message = {
+      id: tempId,
+      content: "",
+      translatedContent: null,
+      messageType: "VOICE",
+      originalLanguage: currentUserLanguage,
+      audioUrl,
+      senderId: currentUserId,
+      createdAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimistic]);
+    isAtBottomRef.current = true;
+
+    if (socket.isConnected()) {
+      socket.sendVoiceMessage(conversation.id, audioUrl, tempId);
+
+      const timer = setTimeout(() => {
+        pendingTimeoutsRef.current.delete(tempId);
+        setFailedIds((prev) => new Set([...prev, tempId]));
+      }, PENDING_TIMEOUT_MS);
+      pendingTimeoutsRef.current.set(tempId, timer);
+    } else {
+      // Socket offline — mark as failed (voice messages require socket)
+      setFailedIds((prev) => new Set([...prev, tempId]));
+    }
+  }
+
   // Fix #11: Throttle typing socket events to at most once per second.
   // Previously every keypress emitted a socket event, flooding the server.
   function handleTyping() {
@@ -309,6 +476,27 @@ export default function ChatWindow({
       socket.stopTyping(conversation.id);
       lastTypingEmitRef.current = 0;
     }, 2000);
+  }
+
+  /** Delete a message for me only — calls API then removes from local state */
+  async function handleDeleteForMe(messageId: string) {
+    const res = await fetch(`/api/messages/${messageId}?mode=for_me`, { method: "DELETE" });
+    if (res.ok) {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    }
+  }
+
+  /** Delete a message for everyone — calls API, updates local state, notifies via socket */
+  async function handleDeleteForEveryone(messageId: string) {
+    if (!window.confirm("Delete this message for everyone?")) return;
+    const res = await fetch(`/api/messages/${messageId}?mode=for_everyone`, { method: "DELETE" });
+    if (res.ok) {
+      setMessages((prev) =>
+        prev.map((m) => m.id === messageId ? { ...m, deletedForEveryone: true, content: "" } : m)
+      );
+      // Notify other participants via socket
+      socket.notifyMessageDeleted?.(conversation.id, messageId);
+    }
   }
 
   /** Remove failed state and re-queue the message for sending. */
@@ -366,6 +554,9 @@ export default function ChatWindow({
         isTyping={isContactTyping}
         onBack={onBack}
         onLeave={onLeave}
+        onDisconnect={onDisconnect}
+        onClearChat={onClearChat}
+        onBlock={onBlock}
       />
 
       {/* Fix #8: Reconnection banner — visible whenever the socket is offline */}
@@ -450,6 +641,14 @@ export default function ChatWindow({
                     currentUserLanguage={currentUserLanguage}
                     isFailed={failedIds.has(msg.id)}
                     onRetry={failedIds.has(msg.id) ? () => handleRetry(msg.id) : undefined}
+                    onDeleteForMe={handleDeleteForMe}
+                    onDeleteForEveryone={handleDeleteForEveryone}
+                    isRead={
+                      msg.senderId === currentUserId &&
+                      !msg.id.startsWith("temp-") &&
+                      !!contactLastReadAt &&
+                      new Date(msg.createdAt) <= new Date(contactLastReadAt)
+                    }
                   />
                 ))}
               </div>
@@ -485,7 +684,7 @@ export default function ChatWindow({
         </button>
       )}
 
-      <ChatInput onSend={handleSend} onTyping={handleTyping} />
+      <ChatInput onSend={handleSend} onSendVoice={handleSendVoice} onTyping={handleTyping} />
     </div>
   );
 }

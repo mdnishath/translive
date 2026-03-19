@@ -2,7 +2,7 @@
 // TransLive Core Types
 // ===========================================
 
-export type Language = "bn" | "fr";
+export type Language = "bn" | "fr" | "en";
 
 export interface TranslationResult {
   originalText: string;
@@ -24,7 +24,7 @@ export interface TextToSpeechResult {
   language: Language;
 }
 
-export type TranslationDirection = "bn-to-fr" | "fr-to-bn";
+export type TranslationDirection = "bn-to-fr" | "fr-to-bn" | "bn-to-en" | "en-to-bn" | "fr-to-en" | "en-to-fr";
 
 export interface ApiError {
   message: string;

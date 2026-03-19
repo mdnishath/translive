@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 // Fix #17: Import from shared util instead of duplicating gradient/initials logic
 import { avatarGradient, getInitials } from "@/lib/utils/avatar";
+import { LANGUAGES } from "@/lib/constants";
 // Read shared chat state from the Zustand store — only re-renders when the
 // subscribed slice changes (e.g. a new message arrives), not on unrelated updates.
-import { useChatStore, PendingRequest } from "@/store/chatStore";
+import { useChatStore, PendingRequest, SentRequest, BlockedUser } from "@/store/chatStore";
 
 export interface ConversationItem {
   id: string;
@@ -34,6 +35,7 @@ interface ContactListProps {
   onAddContact: (email: string) => Promise<{ name: string }>;
   onAcceptRequest: (id: string) => Promise<void>;
   onDeclineRequest: (id: string) => Promise<void>;
+  onUnblock: (userId: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -128,6 +130,66 @@ function RequestRow({
   );
 }
 
+/** A single outgoing (sent) request row — no action buttons, just status */
+function SentRequestRow({ request }: { request: SentRequest }) {
+  return (
+    <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl">
+      <div
+        className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(request.to.id)} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}
+        aria-label={`${request.to.name}'s avatar`}
+        role="img"
+      >
+        {getInitials(request.to.name)}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-white truncate leading-tight">{request.to.name}</p>
+        <p className="text-[10px] text-slate-500 truncate">{request.to.email}</p>
+      </div>
+
+      <div className="flex-shrink-0">
+        <span className="inline-flex items-center gap-1 text-[10px] text-amber-400/80 bg-amber-500/10 rounded-full px-2 py-0.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+          Pending
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** A blocked user row with Unblock button */
+function BlockedUserRow({ user, onUnblock }: { user: BlockedUser; onUnblock: (id: string) => Promise<void> }) {
+  const [unblocking, setUnblocking] = useState(false);
+
+  async function handleUnblock() {
+    setUnblocking(true);
+    try { await onUnblock(user.id); } finally { setUnblocking(false); }
+  }
+
+  return (
+    <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl">
+      <div
+        className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(user.id)} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}
+        aria-label={`${user.name}'s avatar`}
+        role="img"
+      >
+        {getInitials(user.name)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-white truncate leading-tight">{user.name}</p>
+        <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
+      </div>
+      <button
+        onClick={handleUnblock}
+        disabled={unblocking}
+        className="flex items-center gap-1 text-[10px] font-medium text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-lg px-2.5 py-1.5 transition-all disabled:opacity-40"
+      >
+        {unblocking ? <Spinner /> : "Unblock"}
+      </button>
+    </div>
+  );
+}
+
 export default function ContactList({
   selectedId,
   currentUserId,
@@ -135,6 +197,7 @@ export default function ContactList({
   onAddContact,
   onAcceptRequest,
   onDeclineRequest,
+  onUnblock,
   loading,
 }: ContactListProps) {
   // Subscribe to only the store slices this component needs.
@@ -144,6 +207,28 @@ export default function ContactList({
   const onlineUserIds = useChatStore((state) => state.onlineUserIds);
   const unreadCounts = useChatStore((state) => state.unreadCounts);
   const pendingRequests = useChatStore((state) => state.pendingRequests);
+  const sentRequests = useChatStore((state) => state.sentRequests);
+  const contactToasts = useChatStore((state) => state.contactToasts);
+  const removeContactToast = useChatStore((state) => state.removeContactToast);
+  const blockedUsers = useChatStore((state) => state.blockedUsers);
+
+  const hasRequests = pendingRequests.length > 0 || sentRequests.length > 0 || blockedUsers.length > 0;
+  const totalRequestBadge = pendingRequests.length + sentRequests.length;
+  const [requestTab, setRequestTab] = useState<"received" | "sent" | "blocked">("received");
+
+  // Auto-switch to received tab when a new incoming request arrives
+  useEffect(() => {
+    if (pendingRequests.length > 0) setRequestTab("received");
+  }, [pendingRequests.length]);
+
+  // Auto-dismiss toast notifications after 5 seconds
+  useEffect(() => {
+    if (contactToasts.length === 0) return;
+    const timers = contactToasts.map((t) =>
+      setTimeout(() => removeContactToast(t.id), 5000)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [contactToasts, removeContactToast]);
 
   const [search, setSearch] = useState("");
   // Fix #20: Debounced search — filter only after 200ms of inactivity
@@ -195,14 +280,14 @@ export default function ContactList({
               {conversations.length} conversation{conversations.length !== 1 ? "s" : ""}
             </p>
           </div>
-          {/* + button with pending-request badge */}
+          {/* + button with request badge (incoming + sent) */}
           <div className="relative">
-            {pendingRequests.length > 0 && (
+            {totalRequestBadge > 0 && (
               <span
                 className="absolute -top-1 -right-1 z-10 min-w-[16px] h-4 rounded-full bg-red-500 border-2 border-[#0d1424] text-[9px] font-bold text-white flex items-center justify-center px-0.5"
-                aria-label={`${pendingRequests.length} contact request${pendingRequests.length !== 1 ? "s" : ""}`}
+                aria-label={`${totalRequestBadge} contact request${totalRequestBadge !== 1 ? "s" : ""}`}
               >
-                {pendingRequests.length > 9 ? "9+" : pendingRequests.length}
+                {totalRequestBadge > 9 ? "9+" : totalRequestBadge}
               </span>
             )}
             <button
@@ -302,29 +387,130 @@ export default function ContactList({
         </div>
       </div>
 
-      {/* Contact requests section — only shown when there are pending requests */}
-      {pendingRequests.length > 0 && (
-        <div className="border-b border-white/5 bg-[#6C63FF]/5 px-3 py-2.5">
-          <div className="flex items-center gap-2 mb-2 px-1">
-            <svg className="w-3 h-3 text-[#6C63FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6C63FF]">
-              Contact Requests
-            </span>
-            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-[#6C63FF] text-[9px] font-bold text-white px-1">
-              {pendingRequests.length}
-            </span>
+      {/* Toast notifications for accepted/declined feedback */}
+      {contactToasts.map((toast) => (
+        <div
+          key={toast.id}
+          className={`flex items-center gap-2.5 px-4 py-2.5 border-b animate-slide-down ${
+            toast.type === "accepted"
+              ? "bg-emerald-500/10 border-emerald-500/20"
+              : "bg-red-500/10 border-red-500/20"
+          }`}
+        >
+          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+            toast.type === "accepted" ? "bg-emerald-500/20" : "bg-red-500/20"
+          }`}>
+            {toast.type === "accepted" ? (
+              <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
           </div>
+          <p className={`text-xs font-medium ${
+            toast.type === "accepted" ? "text-emerald-400" : "text-red-400"
+          }`}>
+            {toast.userName} {toast.type === "accepted" ? "accepted your request!" : "declined your request"}
+          </p>
+          <button
+            onClick={() => removeContactToast(toast.id)}
+            className="ml-auto text-slate-600 hover:text-white transition-colors"
+            aria-label="Dismiss"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      ))}
+
+      {/* Contact requests section — tabs for Received / Sent */}
+      {hasRequests && (
+        <div className="border-b border-white/5 bg-[#6C63FF]/5 px-3 py-2.5">
+          {/* Tab header */}
+          <div className="flex items-center gap-1 mb-2 px-1">
+            <button
+              onClick={() => setRequestTab("received")}
+              className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-lg transition-all ${
+                requestTab === "received"
+                  ? "text-[#6C63FF] bg-[#6C63FF]/10"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              Received
+              {pendingRequests.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[16px] h-4 rounded-full bg-[#6C63FF] text-[9px] font-bold text-white px-1">
+                  {pendingRequests.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setRequestTab("sent")}
+              className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-lg transition-all ${
+                requestTab === "sent"
+                  ? "text-amber-400 bg-amber-500/10"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              Sent
+              {sentRequests.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[16px] h-4 rounded-full bg-amber-500 text-[9px] font-bold text-white px-1">
+                  {sentRequests.length}
+                </span>
+              )}
+            </button>
+            {blockedUsers.length > 0 && (
+              <button
+                onClick={() => setRequestTab("blocked")}
+                className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded-lg transition-all ${
+                  requestTab === "blocked"
+                    ? "text-red-400 bg-red-500/10"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                Blocked
+                <span className="inline-flex items-center justify-center min-w-[16px] h-4 rounded-full bg-red-500 text-[9px] font-bold text-white px-1">
+                  {blockedUsers.length}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {/* Tab content */}
           <div className="flex flex-col gap-0.5">
-            {pendingRequests.map((req) => (
-              <RequestRow
-                key={req.id}
-                request={req}
-                onAccept={onAcceptRequest}
-                onDecline={onDeclineRequest}
-              />
-            ))}
+            {requestTab === "received" ? (
+              pendingRequests.length > 0 ? (
+                pendingRequests.map((req) => (
+                  <RequestRow
+                    key={req.id}
+                    request={req}
+                    onAccept={onAcceptRequest}
+                    onDecline={onDeclineRequest}
+                  />
+                ))
+              ) : (
+                <p className="text-xs text-slate-600 px-2 py-2">No incoming requests</p>
+              )
+            ) : requestTab === "sent" ? (
+              sentRequests.length > 0 ? (
+                sentRequests.map((req) => (
+                  <SentRequestRow key={req.id} request={req} />
+                ))
+              ) : (
+                <p className="text-xs text-slate-600 px-2 py-2">No sent requests</p>
+              )
+            ) : (
+              blockedUsers.length > 0 ? (
+                blockedUsers.map((u) => (
+                  <BlockedUserRow key={u.id} user={u} onUnblock={onUnblock} />
+                ))
+              ) : (
+                <p className="text-xs text-slate-600 px-2 py-2">No blocked users</p>
+              )
+            )}
           </div>
         </div>
       )}
@@ -420,8 +606,8 @@ export default function ContactList({
                           {lastMsg
                             ? lastMsg.messageType === "VOICE"
                               ? "🎤 Voice message"
-                              : lastMsg.content
-                            : <span className="italic opacity-60">{contact.language === "fr" ? "Bonjour! 👋" : "হ্যালো! 👋"}</span>
+                              : (!isMine && lastMsg.translatedContent) ? lastMsg.translatedContent : lastMsg.content
+                            : <span className="italic opacity-60">{contact.language === "fr" ? "Bonjour! 👋" : contact.language === "en" ? "Hello! 👋" : "হ্যালো! 👋"}</span>
                           }
                         </p>
                       </div>
@@ -432,7 +618,7 @@ export default function ContactList({
                           </span>
                         ) : (
                           <span className="text-sm opacity-40 group-hover:opacity-80 transition-opacity" aria-hidden="true">
-                            {contact.language === "fr" ? "🇫🇷" : "🇧🇩"}
+                            {LANGUAGES[contact.language as keyof typeof LANGUAGES]?.flag ?? "🌐"}
                           </span>
                         )}
                       </div>

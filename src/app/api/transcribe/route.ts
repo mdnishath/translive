@@ -27,7 +27,7 @@ async function transcribeWithGoogle(
       config: {
         encoding: "WEBM_OPUS",
         sampleRateHertz: 48000,
-        languageCode: language === "bn" ? "bn-IN" : "fr-FR",
+        languageCode: language === "bn" ? "bn-IN" : language === "en" ? "en-US" : "fr-FR",
         enableAutomaticPunctuation: true,
       },
       audio: { content: base64Audio },
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     const language = request.headers.get("x-language") || "bn";
 
     // Bengali → Google STT (accurate Bengali support)
-    // French  → Deepgram Nova-3 (fast, excellent French)
+    // English/French → Deepgram Nova-3 (fast)
     const { transcript, confidence } =
       language === "bn"
         ? await transcribeWithGoogle(body, language)

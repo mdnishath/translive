@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { LANGUAGES } from "@/lib/constants";
+import { io } from "socket.io-client";
 
 export default function ProfilePage() {
   const { user, logout, refreshUser } = useAuth();
@@ -21,6 +22,16 @@ export default function ProfilePage() {
     });
     if (res.ok) {
       await refreshUser();
+      // Notify contacts about language change via socket
+      const socket = io(window.location.origin, {
+        transports: ["polling", "websocket"],
+        withCredentials: true,
+      });
+      socket.on("connect", () => {
+        socket.emit("notify_language_changed", { language: selectedLang });
+        // Disconnect after a short delay to ensure delivery
+        setTimeout(() => socket.disconnect(), 1000);
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }

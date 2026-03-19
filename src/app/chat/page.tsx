@@ -8,6 +8,7 @@ import ChatWindow from "@/components/chat/ChatWindow";
 import { useSocket } from "@/hooks/useSocket";
 import { Message } from "@/components/chat/MessageBubble";
 import { useChatStore } from "@/store/chatStore";
+import { LANGUAGES } from "@/lib/constants";
 
 export default function ChatPage() {
   const { user, loading } = useAuth();
@@ -24,6 +25,12 @@ export default function ChatPage() {
     clearUnread,
     setPendingRequests,
     removePendingRequest,
+    setSentRequests,
+    removeSentRequest,
+    addContactToast,
+    setBlockedUsers,
+    removeBlockedUser,
+    updateContactLanguage,
   } = useChatStore();
 
   // ── Local UI state ────────────────────────────────────────────────
@@ -32,11 +39,27 @@ export default function ChatPage() {
   const [convError, setConvError] = useState(false);
   const [selected, setSelected] = useState<ConversationItem | null>(null);
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
+  const [chatKey, setChatKey] = useState(0);
 
   // Ref so socket event handlers always read the current selected conversation
   // without needing to be recreated when selection changes.
   const selectedRef = useRef<ConversationItem | null>(null);
   selectedRef.current = selected;
+
+  // ── Fix: Clear selection when viewport shrinks to mobile while chat is open ──
+  // Without this, resizing from desktop→mobile hides the chat panel via CSS but
+  // leaves ChatWindow mounted, causing false read receipts and missed unread badges.
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 768px)");
+    function handleChange(e: MediaQueryListEvent) {
+      if (!e.matches && selectedRef.current && mobileView === "list") {
+        // Viewport shrunk below md breakpoint while chat panel would be hidden
+        setSelected(null);
+      }
+    }
+    mql.addEventListener("change", handleChange);
+    return () => mql.removeEventListener("change", handleChange);
+  }, [mobileView]);
 
   // ── Data fetching ─────────────────────────────────────────────────
   // Defined BEFORE useSocket so they can be passed as callbacks.
@@ -71,12 +94,38 @@ export default function ChatPage() {
     }
   }, [setPendingRequests]);
 
+  const fetchSentRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/contacts/sent");
+      if (res.ok) {
+        const data = await res.json();
+        setSentRequests(data.requests);
+      }
+    } catch {
+      // Non-critical — silently fail
+    }
+  }, [setSentRequests]);
+
+  const fetchBlockedUsers = useCallback(async () => {
+    try {
+      const res = await fetch("/api/contacts/blocked");
+      if (res.ok) {
+        const data = await res.json();
+        setBlockedUsers(data.blockedUsers);
+      }
+    } catch {
+      // Non-critical
+    }
+  }, [setBlockedUsers]);
+
   useEffect(() => {
     if (user) {
       fetchConversations();
       fetchPendingRequests();
+      fetchSentRequests();
+      fetchBlockedUsers();
     }
-  }, [user, fetchConversations, fetchPendingRequests]);
+  }, [user, fetchConversations, fetchPendingRequests, fetchSentRequests, fetchBlockedUsers]);
 
   // ── Socket message handlers ───────────────────────────────────────
 
@@ -104,11 +153,31 @@ export default function ChatPage() {
     fetchPendingRequests();
   }, [fetchPendingRequests]);
 
-  /** Our contact request was accepted — refresh conversations so the new one appears. */
-  const handleContactAccepted = useCallback(() => {
+  /** Our contact request was accepted — show toast, refresh conversations + sent requests. */
+  const handleContactAccepted = useCallback((data: { byUserName?: string }) => {
     fetchConversations();
     fetchPendingRequests();
-  }, [fetchConversations, fetchPendingRequests]);
+    fetchSentRequests();
+    if (data.byUserName) {
+      addContactToast({
+        id: `accepted-${Date.now()}`,
+        type: "accepted",
+        userName: data.byUserName,
+      });
+    }
+  }, [fetchConversations, fetchPendingRequests, fetchSentRequests, addContactToast]);
+
+  /** Our contact request was declined — show toast + refresh sent requests. */
+  const handleContactDeclined = useCallback((data: { byUserName?: string }) => {
+    fetchSentRequests();
+    if (data.byUserName) {
+      addContactToast({
+        id: `declined-${Date.now()}`,
+        type: "declined",
+        userName: data.byUserName,
+      });
+    }
+  }, [fetchSentRequests, addContactToast]);
 
   /** A participant left a conversation — remove it from the sidebar. */
   const handleConversationLeft = useCallback(
@@ -122,17 +191,63 @@ export default function ChatPage() {
     [removeConversation]
   );
 
+  /** The other user blocked you — remove conversation and refresh sidebar. */
+  const handleContactBlocked = useCallback(
+    ({ conversationId }: { byUserId: string; conversationId?: string }) => {
+      if (conversationId) {
+        removeConversation(conversationId);
+        if (selectedRef.current?.id === conversationId) {
+          setSelected(null);
+          setMobileView("list");
+        }
+      }
+      fetchConversations();
+    },
+    [removeConversation, fetchConversations]
+  );
+
+  /** The other user disconnected — remove conversation and refresh sidebar. */
+  const handleContactDisconnected = useCallback(
+    ({ conversationId }: { byUserId: string; conversationId?: string }) => {
+      if (conversationId) {
+        removeConversation(conversationId);
+        if (selectedRef.current?.id === conversationId) {
+          setSelected(null);
+          setMobileView("list");
+        }
+      }
+      fetchConversations();
+    },
+    [removeConversation, fetchConversations]
+  );
+
+  /** A contact changed their language preference — update sidebar + header display. */
+  const handleLanguageChanged = useCallback(
+    ({ userId, language }: { userId: string; language: string }) => {
+      updateContactLanguage(userId, language);
+      // Also update the currently selected conversation if it's the same contact
+      if (selectedRef.current?.contact?.id === userId) {
+        setSelected((prev) =>
+          prev ? { ...prev, contact: prev.contact ? { ...prev.contact, language } : prev.contact } : prev
+        );
+      }
+    },
+    [updateContactLanguage]
+  );
+
   const socket = useSocket({
     onUserOnline: addOnlineUser,
     onUserOffline: removeOnlineUser,
     onOnlineUsers: setOnlineUsers,
     onReceiveMessage: handleReceiveMessage,
-    // When the server notifies us of a new conversation (either we added someone,
-    // or someone added us), refresh the sidebar immediately — no page reload needed.
     onNewConversation: fetchConversations,
     onContactRequest: handleContactRequest,
     onContactAccepted: handleContactAccepted,
+    onContactDeclined: handleContactDeclined,
     onConversationLeft: handleConversationLeft,
+    onContactBlocked: handleContactBlocked,
+    onContactDisconnected: handleContactDisconnected,
+    onLanguageChanged: handleLanguageChanged,
   });
 
   // ── Fix #26: Update sidebar when the current user's own message is confirmed ─
@@ -157,6 +272,27 @@ export default function ChatPage() {
     return () => window.removeEventListener("socket:message_saved", onMessageSaved);
   }, [updateLastMessage]);
 
+  // ── Update sidebar when Claude refines a translation ────────────
+
+  useEffect(() => {
+    function onTranslationRefined(e: Event) {
+      const { messageId, refined, conversationId } = (e as CustomEvent).detail as {
+        messageId: string; refined: string; conversationId: string;
+      };
+      // Update the sidebar preview if this refined message is the last message
+      const conv = useChatStore.getState().conversations.find((c) => c.id === conversationId);
+      if (conv?.lastMessage?.id === messageId) {
+        updateLastMessage(conversationId, {
+          ...conv.lastMessage,
+          translatedContent: refined,
+        });
+      }
+    }
+
+    window.addEventListener("socket:translation_refined", onTranslationRefined);
+    return () => window.removeEventListener("socket:translation_refined", onTranslationRefined);
+  }, [updateLastMessage]);
+
   // ── Handlers ──────────────────────────────────────────────────────
 
   async function handleAddContact(email: string): Promise<{ name: string }> {
@@ -167,27 +303,45 @@ export default function ChatPage() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to send request");
-    // The sidebar will update via the onNewConversation socket event from server
+
+    if (data.rejoined) {
+      // User was re-connected after leaving — refresh conversations immediately
+      fetchConversations();
+      // Notify the other user so their sidebar updates in real time
+      socket.notifyConversationRejoined(data.contact.id, data.conversationId);
+      return { name: data.contact.name };
+    }
+
+    // Reliable relay: tell the socket server to notify the target user
+    console.log("[ChatPage] About to notifyContactRequest, contact.id=", data.contact.id, "socket.connected=", socket.connected);
+    socket.notifyContactRequest(data.contact.id);
+    // Refresh sent requests so the "Sent" tab shows the new request
+    fetchSentRequests();
     return { name: data.contact.name };
   }
 
   async function handleAcceptRequest(contactId: string): Promise<void> {
     const res = await fetch(`/api/contacts/${contactId}/accept`, { method: "PATCH" });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to accept");
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to accept");
     removePendingRequest(contactId);
-    // fetchConversations is triggered by the NEW_CONVERSATION socket event
+    // Reliable relay: notify the original requester + refresh both sidebars
+    if (data.requesterId && data.conversationId) {
+      socket.notifyContactAccepted(data.requesterId, data.conversationId);
+    }
+    // Also refresh our own conversations immediately
+    fetchConversations();
   }
 
   async function handleDeclineRequest(contactId: string): Promise<void> {
     const res = await fetch(`/api/contacts/${contactId}/decline`, { method: "PATCH" });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to decline");
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to decline");
     removePendingRequest(contactId);
+    // Reliable relay: notify the original requester
+    if (data.requesterId) {
+      socket.notifyContactDeclined(data.requesterId);
+    }
   }
 
   async function handleLeaveConversation() {
@@ -202,6 +356,60 @@ export default function ChatPage() {
       removeConversation(selected.id);
       setSelected(null);
       setMobileView("list");
+    }
+  }
+
+  async function handleDisconnectContact() {
+    if (!selected?.contact) return;
+    const contactName = selected.contact.name;
+    if (!window.confirm(`Disconnect from ${contactName}?\n\nChat history will be kept but the contact will be removed. You can re-add them later.`)) return;
+
+    const contactId = selected.contact.id;
+    const convId = selected.id;
+    const res = await fetch(`/api/contacts/${contactId}/disconnect`, { method: "PATCH" });
+    if (res.ok) {
+      removeConversation(convId);
+      setSelected(null);
+      setMobileView("list");
+      // Notify the other user in real-time so their sidebar updates instantly
+      socket.notifyContactDisconnected(contactId, convId);
+    }
+  }
+
+  async function handleClearChat() {
+    if (!selected) return;
+    const contactName = selected.contact?.name ?? "this conversation";
+    if (!window.confirm(`Clear your chat history with ${contactName}?\n\nThis only clears for you, not for them.`)) return;
+
+    const res = await fetch(`/api/conversations/${selected.id}/clear`, { method: "DELETE" });
+    if (res.ok) {
+      // Force remount ChatWindow by changing the key — bump a counter
+      setChatKey((k) => k + 1);
+    }
+  }
+
+  async function handleBlockContact() {
+    if (!selected?.contact) return;
+    const contactName = selected.contact.name;
+    if (!window.confirm(`Block ${contactName}?\n\nThey won't be able to contact you until you unblock them.`)) return;
+
+    const contactId = selected.contact.id;
+    const convId = selected.id;
+    const res = await fetch(`/api/contacts/${contactId}/block`, { method: "PATCH" });
+    if (res.ok) {
+      removeConversation(convId);
+      setSelected(null);
+      setMobileView("list");
+      fetchBlockedUsers();
+      // Notify the blocked user in real-time so their sidebar updates instantly
+      socket.notifyContactBlocked(contactId, convId);
+    }
+  }
+
+  async function handleUnblockUser(userId: string) {
+    const res = await fetch(`/api/contacts/${userId}/unblock`, { method: "PATCH" });
+    if (res.ok) {
+      removeBlockedUser(userId);
     }
   }
 
@@ -247,7 +455,9 @@ export default function ChatPage() {
           <div>
             <p className="font-semibold text-white text-sm">{user.name}</p>
             <p className="text-[#8B9EC7] text-xs">
-              {user.language === "bn" ? "🇧🇩 বাংলা" : "🇫🇷 Français"}
+              {LANGUAGES[user.language as keyof typeof LANGUAGES]
+                ? `${LANGUAGES[user.language as keyof typeof LANGUAGES].flag} ${LANGUAGES[user.language as keyof typeof LANGUAGES].name}`
+                : `🌐 ${user.language}`}
             </p>
           </div>
         </div>
@@ -304,6 +514,7 @@ export default function ChatPage() {
             onAddContact={handleAddContact}
             onAcceptRequest={handleAcceptRequest}
             onDeclineRequest={handleDeclineRequest}
+            onUnblock={handleUnblockUser}
             loading={convLoading}
           />
         </div>
@@ -314,13 +525,16 @@ export default function ChatPage() {
         >
           {selected ? (
             <ChatWindow
-              key={selected.id}
+              key={`${selected.id}-${chatKey}`}
               conversation={selected}
               currentUserId={user.id}
               currentUserLanguage={user.language}
               socket={socket}
-              onBack={() => setMobileView("list")}
+              onBack={() => { setSelected(null); setMobileView("list"); }}
               onLeave={handleLeaveConversation}
+              onDisconnect={handleDisconnectContact}
+              onClearChat={handleClearChat}
+              onBlock={handleBlockContact}
             />
           ) : (
             /* Empty state shown on desktop when no conversation is selected */

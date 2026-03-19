@@ -46,8 +46,8 @@ export async function POST(request: NextRequest) {
     });
     if (!contactUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    // Check for existing request in either direction
-    const existing = await prisma.contact.findFirst({
+    // Check for ALL existing records in either direction (accept route creates two)
+    const allExisting = await prisma.contact.findMany({
       where: {
         OR: [
           { userId: payload.userId, contactId: contactUser.id },
@@ -56,23 +56,61 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (existing) {
-      if (existing.status === "ACCEPTED") {
-        return NextResponse.json({ error: "Already connected" }, { status: 400 });
+    // Check statuses across all records
+    const statuses = allExisting.map((r) => r.status);
+
+    if (statuses.includes("BLOCKED")) {
+      const blockedRecord = allExisting.find((r) => r.status === "BLOCKED")!;
+      if (blockedRecord.userId === payload.userId) {
+        return NextResponse.json({ error: "You have blocked this user. Unblock them first to send a request." }, { status: 403 });
       }
-      if (existing.status === "PENDING") {
-        return NextResponse.json({ error: "Request already sent" }, { status: 400 });
-      }
-      // DECLINED — allow re-sending by resetting status
-      await prisma.contact.update({
-        where: { id: existing.id },
-        data: { status: "PENDING" },
+      return NextResponse.json({ error: "Unable to send request to this user at this time" }, { status: 403 });
+    }
+
+    if (statuses.includes("ACCEPTED")) {
+      // Check if EITHER user has left the conversation — if so, re-activate
+      const conv = await prisma.conversation.findFirst({
+        where: {
+          AND: [
+            { participants: { some: { userId: payload.userId } } },
+            { participants: { some: { userId: contactUser.id } } },
+          ],
+        },
+        include: {
+          participants: {
+            select: { id: true, userId: true, leftAt: true },
+          },
+        },
       });
-    } else {
-      await prisma.contact.create({
-        data: { userId: payload.userId, contactId: contactUser.id, status: "PENDING" },
+
+      if (conv) {
+        const leftParticipants = conv.participants.filter((p) => p.leftAt !== null);
+        if (leftParticipants.length > 0) {
+          await prisma.conversationParticipant.updateMany({
+            where: { id: { in: leftParticipants.map((p) => p.id) } },
+            data: { leftAt: null },
+          });
+          return NextResponse.json({ contact: contactUser, rejoined: true, conversationId: conv.id });
+        }
+      }
+
+      return NextResponse.json({ error: "Already connected" }, { status: 400 });
+    }
+
+    if (statuses.includes("PENDING")) {
+      return NextResponse.json({ error: "Request already sent" }, { status: 400 });
+    }
+
+    // DECLINED or no records — delete ALL stale records and create fresh with correct direction
+    if (allExisting.length > 0) {
+      await prisma.contact.deleteMany({
+        where: { id: { in: allExisting.map((r) => r.id) } },
       });
     }
+
+    await prisma.contact.create({
+      data: { userId: payload.userId, contactId: contactUser.id, status: "PENDING" },
+    });
 
     // Notify User B in real time — their requests badge updates instantly
     const io = getIO();

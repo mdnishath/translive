@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 // Fix #17: Import from shared util instead of duplicating the logic here
 import { avatarGradient, getInitials } from "@/lib/utils/avatar";
+import { LANGUAGES } from "@/lib/constants";
 
 interface ChatHeaderProps {
   contact: {
@@ -14,9 +16,29 @@ interface ChatHeaderProps {
   isTyping?: boolean;
   onBack?: () => void;
   onLeave?: () => void;
+  onDisconnect?: () => void;
+  onClearChat?: () => void;
+  onBlock?: () => void;
 }
 
-export default function ChatHeader({ contact, isOnline, isTyping, onBack, onLeave }: ChatHeaderProps) {
+export default function ChatHeader({
+  contact, isOnline, isTyping, onBack, onLeave, onDisconnect, onClearChat, onBlock,
+}: ChatHeaderProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [menuOpen]);
+
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-white/5" style={{ background: "#0d1424" }}>
 
@@ -35,7 +57,6 @@ export default function ChatHeader({ contact, isOnline, isTyping, onBack, onLeav
 
       {/* Avatar */}
       <div className="relative flex-shrink-0">
-        {/* Fix #18: aria-label so screen readers identify who the avatar belongs to */}
         <div
           className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(contact.id)} flex items-center justify-center text-sm font-bold text-white`}
           aria-label={`${contact.name}'s avatar`}
@@ -57,7 +78,6 @@ export default function ChatHeader({ contact, isOnline, isTyping, onBack, onLeav
         <p className="font-semibold text-white text-sm truncate leading-tight">{contact.name}</p>
         <div className="flex items-center gap-1.5 mt-0.5">
           {isTyping ? (
-            /* Typing indicator dots */
             <div className="flex items-center gap-1" aria-label={`${contact.name} is typing`}>
               <div className="flex items-center gap-0.5">
                 {[0, 1, 2].map((i) => (
@@ -82,7 +102,9 @@ export default function ChatHeader({ contact, isOnline, isTyping, onBack, onLeav
               )}
               <span className="text-slate-700 text-[11px]" aria-hidden="true">·</span>
               <span className="text-[11px] text-slate-500">
-                {contact.language === "fr" ? "🇫🇷 French" : "🇧🇩 Bengali"}
+                {LANGUAGES[contact.language as keyof typeof LANGUAGES]
+                  ? `${LANGUAGES[contact.language as keyof typeof LANGUAGES].flag} ${LANGUAGES[contact.language as keyof typeof LANGUAGES].englishName}`
+                  : `🌐 ${contact.language}`}
               </span>
             </>
           )}
@@ -122,19 +144,68 @@ export default function ChatHeader({ contact, isOnline, isTyping, onBack, onLeav
           </svg>
         </button>
 
-        {/* Leave conversation — exit/door icon */}
-        {onLeave && (
+        {/* ⋮ More menu — disconnect, clear chat, block */}
+        <div className="relative" ref={menuRef}>
           <button
-            onClick={onLeave}
-            title="Leave conversation"
-            aria-label="Leave conversation"
-            className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            onClick={() => setMenuOpen(!menuOpen)}
+            title="More options"
+            aria-label="More options"
+            aria-expanded={menuOpen}
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/8 transition-colors"
           >
-            <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
             </svg>
           </button>
-        )}
+
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1 w-52 bg-[#1a2236] border border-[#2a3a5c] rounded-xl shadow-2xl overflow-hidden z-50 py-1">
+              {/* Clear chat history */}
+              {onClearChat && (
+                <button
+                  onClick={() => { setMenuOpen(false); onClearChat(); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Clear chat history
+                </button>
+              )}
+
+              {/* Disconnect */}
+              {onDisconnect && (
+                <button
+                  onClick={() => { setMenuOpen(false); onDisconnect(); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-amber-400 hover:bg-amber-500/10 transition-colors"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  Disconnect
+                </button>
+              )}
+
+              {/* Divider */}
+              <div className="h-px bg-white/5 my-1" />
+
+              {/* Block */}
+              {onBlock && (
+                <button
+                  onClick={() => { setMenuOpen(false); onBlock(); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  Block user
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

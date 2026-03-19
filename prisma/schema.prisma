@@ -15,15 +15,18 @@ model User {
   email     String   @unique
   password  String
   name      String
-  language  String   @default("bn") // "bn" or "fr"
-  avatar    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  language     String    @default("bn") // "bn" or "fr"
+  avatar       String?
+  voiceCloneId String?   // ElevenLabs cloned voice ID
+  voiceCloneAt DateTime? // When the voice was last cloned/updated
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  sentMessages  Message[]                 @relation("SentMessages")
-  conversations ConversationParticipant[]
-  contacts      Contact[]                 @relation("UserContacts")
-  contactOf     Contact[]                 @relation("ContactOf")
+  sentMessages     Message[]                 @relation("SentMessages")
+  conversations    ConversationParticipant[]
+  contacts         Contact[]                 @relation("UserContacts")
+  contactOf        Contact[]                 @relation("ContactOf")
+  messageDeletions MessageDeletion[]
 
   @@map("users")
 }
@@ -52,6 +55,7 @@ model ConversationParticipant {
   conversationId String
   joinedAt       DateTime  @default(now())
   leftAt         DateTime? // null = active participant
+  lastReadAt     DateTime? // tracks when user last read this conversation
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -72,6 +76,8 @@ model Message {
   translatedLanguage String?     // "bn" or "fr"
   audioUrl           String?
   translatedAudioUrl String?
+  translationEngine  String?     // "google" or "claude"
+  deletedForEveryone Boolean     @default(false)
   createdAt          DateTime    @default(now())
 
   senderId       String
@@ -79,9 +85,27 @@ model Message {
 
   sender       User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  deletions    MessageDeletion[]
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+// ===========================================
+// Per-user message deletion tracking
+// When a user deletes a message "for me" or clears chat history,
+// a record is created here. The message still exists for the other user.
+// ===========================================
+model MessageDeletion {
+  id        String @id @default(cuid())
+  userId    String
+  messageId String
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@map("message_deletions")
 }
 
 enum MessageType {
@@ -102,6 +126,7 @@ enum ContactStatus {
   PENDING
   ACCEPTED
   DECLINED
+  BLOCKED
 }
 
 model Contact {

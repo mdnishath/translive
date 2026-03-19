@@ -1,6 +1,6 @@
 # Session 08: Auto-Translation in Chat
 
-## Status: PENDING
+## Status: DONE
 ## Prerequisite: Session 07 completed (Real-time messaging working)
 
 ## Goal:
@@ -40,10 +40,10 @@ Send flow:
 - Cache translations in DB
 
 ## Success Criteria:
-- [ ] Bengali user sends → French user sees French text
-- [ ] French user sends → Bengali user sees Bengali text
-- [ ] Original text "Show original" toggle এ দেখা যায়
-- [ ] Translation fast (< 1 second for short messages)
+- [x] Bengali user sends → French user sees French text
+- [x] French user sends → Bengali user sees Bengali text
+- [x] Original text "Show original" toggle এ দেখা যায়
+- [x] Translation fast (< 1 second for short messages)
 
 ## Files to modify/create:
 - `src/lib/socket/server.ts` (add translation middleware)

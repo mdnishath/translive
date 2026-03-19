@@ -1,6 +1,6 @@
 # Session 10: Voice Recording UI
 
-## Status: PENDING
+## Status: DONE
 ## Prerequisite: Session 09 completed (Smart translation working)
 
 ## Goal:
@@ -47,12 +47,12 @@ ChatInput-এ mic button যোগ করো:
 - Loading state while processing
 
 ## Success Criteria:
-- [ ] Hold mic button → records audio
-- [ ] Waveform shows while recording
-- [ ] Duration timer shows
-- [ ] Slide left cancels
-- [ ] Voice message appears in chat as audio bubble
-- [ ] Play button works
+- [x] Hold mic button → records audio
+- [x] Waveform shows while recording
+- [x] Duration timer shows
+- [x] Slide left cancels
+- [x] Voice message appears in chat as audio bubble
+- [x] Play button works
 
 ## Files to create:
 - `src/components/voice/WaveformVisualizer.tsx`

@@ -34,6 +34,34 @@ export interface PendingRequest {
   createdAt: string;
 }
 
+/** An outgoing contact request — fetched from GET /api/contacts/sent */
+export interface SentRequest {
+  id: string;
+  to: {
+    id: string;
+    name: string;
+    email: string;
+    language: string;
+    avatar: string | null;
+  };
+  createdAt: string;
+}
+
+/** A blocked user entry */
+export interface BlockedUser {
+  id: string;
+  name: string;
+  email: string;
+  language: string;
+}
+
+/** A toast notification shown temporarily at the top of the contact list */
+export interface ContactToast {
+  id: string;
+  type: "accepted" | "declined";
+  userName: string;
+}
+
 interface ChatState {
   // ── Data ────────────────────────────────────────────────────────────
   conversations: ConversationItem[];
@@ -43,6 +71,12 @@ interface ChatState {
   unreadCounts: Record<string, number>;
   /** Incoming contact requests waiting for accept/decline. */
   pendingRequests: PendingRequest[];
+  /** Outgoing contact requests (sent by current user, still PENDING). */
+  sentRequests: SentRequest[];
+  /** Temporary toast notifications for contact accept/decline feedback. */
+  contactToasts: ContactToast[];
+  /** Users blocked by the current user. */
+  blockedUsers: BlockedUser[];
 
   // ── Conversation actions ────────────────────────────────────────────
   setConversations: (convs: ConversationItem[]) => void;
@@ -64,6 +98,19 @@ interface ChatState {
   // ── Contact request actions ─────────────────────────────────────────
   setPendingRequests: (requests: PendingRequest[]) => void;
   removePendingRequest: (id: string) => void;
+  setSentRequests: (requests: SentRequest[]) => void;
+  removeSentRequest: (id: string) => void;
+
+  // ── Toast actions ─────────────────────────────────────────────────
+  addContactToast: (toast: ContactToast) => void;
+  removeContactToast: (id: string) => void;
+
+  // ── Blocked users actions ───────────────────────────────────────────
+  setBlockedUsers: (users: BlockedUser[]) => void;
+  removeBlockedUser: (id: string) => void;
+
+  // ── Contact language update ───────────────────────────────────────
+  updateContactLanguage: (userId: string, language: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -71,6 +118,9 @@ export const useChatStore = create<ChatState>((set) => ({
   onlineUserIds: new Set(),
   unreadCounts: {},
   pendingRequests: [],
+  sentRequests: [],
+  contactToasts: [],
+  blockedUsers: [],
 
   // ── Conversation mutations ─────────────────────────────────────────
 
@@ -127,5 +177,43 @@ export const useChatStore = create<ChatState>((set) => ({
   removePendingRequest: (id) =>
     set((state) => ({
       pendingRequests: state.pendingRequests.filter((r) => r.id !== id),
+    })),
+
+  setSentRequests: (sentRequests) => set({ sentRequests }),
+
+  removeSentRequest: (id) =>
+    set((state) => ({
+      sentRequests: state.sentRequests.filter((r) => r.id !== id),
+    })),
+
+  // ── Toast mutations ──────────────────────────────────────────────
+
+  addContactToast: (toast) =>
+    set((state) => ({
+      contactToasts: [...state.contactToasts, toast],
+    })),
+
+  removeContactToast: (id) =>
+    set((state) => ({
+      contactToasts: state.contactToasts.filter((t) => t.id !== id),
+    })),
+
+  // ── Blocked users mutations ──────────────────────────────────────
+
+  setBlockedUsers: (blockedUsers) => set({ blockedUsers }),
+
+  removeBlockedUser: (id) =>
+    set((state) => ({
+      blockedUsers: state.blockedUsers.filter((u) => u.id !== id),
+    })),
+
+  // ── Contact language mutations ──────────────────────────────────
+  updateContactLanguage: (userId, language) =>
+    set((state) => ({
+      conversations: state.conversations.map((conv) =>
+        conv.contact?.id === userId
+          ? { ...conv, contact: { ...conv.contact, language } }
+          : conv
+      ),
     })),
 }));

@@ -31,13 +31,13 @@ Session শেষে Claude তোমাকে বলবে পরের session
 | 05 | User Authentication (signup, login, JWT) | ✅ DONE | 1.5 hr |
 | 06 | Chat UI (contact list + chat window layout) | ✅ DONE | 1.5 hr |
 | 07 | Real-time messaging (Socket.io) | ✅ DONE | 1.5 hr |
-| 08 | Auto-translation in chat messages | ⬜ PENDING | 1 hr |
-| 09 | Smart translation (Claude API + caching) | ⬜ PENDING | 1 hr |
+| 08 | Auto-translation in chat messages | ✅ DONE | 1 hr |
+| 09 | Smart translation (Claude API + caching) | ✅ DONE | 1 hr |
 
 ### Phase 3: Voice Messages
 | # | Session | Status | Est. Time |
 |---|---------|--------|-----------|
-| 10 | Voice recording UI (hold-to-record + waveform) | ⬜ PENDING | 1.5 hr |
+| 10 | Voice recording UI (hold-to-record + waveform) | ✅ DONE | 1.5 hr |
 | 11 | Voice message pipeline (STT → Translate → TTS) | ⬜ PENDING | 1.5 hr |
 | 12 | Voice message UI polish + playback | ⬜ PENDING | 1 hr |
 

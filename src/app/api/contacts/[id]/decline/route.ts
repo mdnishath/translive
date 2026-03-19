@@ -36,7 +36,7 @@ export async function PATCH(
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, requesterId: contact.userId });
   } catch (error) {
     console.error("Decline contact error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

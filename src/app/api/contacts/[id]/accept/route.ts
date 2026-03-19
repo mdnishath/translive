@@ -79,7 +79,7 @@ export async function PATCH(
       io.to(`user:${contact.userId}`).emit(SOCKET_EVENTS.NEW_CONVERSATION, event);
     }
 
-    return NextResponse.json({ ok: true, conversationId });
+    return NextResponse.json({ ok: true, conversationId, requesterId: contact.userId });
   } catch (error) {
     console.error("Accept contact error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

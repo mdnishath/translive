@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "translive-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "server.ts"],
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }

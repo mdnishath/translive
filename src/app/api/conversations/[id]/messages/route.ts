@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth";
+import { translateText, getTargetLanguage } from "@/lib/translate";
 
 // Fix #15: Cursor-based pagination.
 // The client passes ?cursor=<messageId>&limit=<n> to load older messages.
@@ -34,9 +35,14 @@ export async function GET(
     const cursor = searchParams.get("cursor") ?? undefined;
     const limit = Math.min(parseInt(searchParams.get("limit") ?? String(PAGE_SIZE), 10), 100);
 
-    // Fetch limit+1 rows so we know if there's a next page without an extra query
+    // Fetch limit+1 rows so we know if there's a next page without an extra query.
+    // Exclude messages deleted for this user (MessageDeletion) or deleted for everyone.
     const messages = await prisma.message.findMany({
-      where: { conversationId },
+      where: {
+        conversationId,
+        deletedForEveryone: false,
+        deletions: { none: { userId: payload.userId } },
+      },
       include: {
         sender: { select: { id: true, name: true, language: true } },
       },
@@ -91,11 +97,17 @@ export async function POST(
       select: { language: true },
     });
 
+    const senderLang = sender?.language ?? "bn";
+    const targetLang = getTargetLanguage(senderLang);
+    const translation = await translateText(content, senderLang, targetLang);
+
     const message = await prisma.message.create({
       data: {
         content,
+        translatedContent: translation?.translatedText ?? null,
         messageType,
-        originalLanguage: sender?.language ?? "bn",
+        originalLanguage: senderLang,
+        translatedLanguage: translation ? targetLang : null,
         senderId: payload.userId,
         conversationId,
       },
