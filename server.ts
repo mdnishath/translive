@@ -161,6 +161,15 @@ async function processVoiceMessage(
 
   if (!transcript) {
     console.log(`[voice] No transcript for ${messageId} (lang: ${senderLang})`);
+    // Emit voice_processed with empty transcript so UI stops showing "Transcribing..."
+    io.to(`conv:${conversationId}`).emit("voice_processed", {
+      messageId,
+      conversationId,
+      transcript: "",
+      translatedText: null,
+      translatedAudioUrl: null,
+      engine: null,
+    });
     return;
   }
 

@@ -60,11 +60,30 @@ function AudioPlayer({ url, isMine }: { url: string; isMine: boolean }) {
   useEffect(() => {
     const audio = new Audio(url);
     audioRef.current = audio;
+
+    function trySetDuration() {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+        return true;
+      }
+      return false;
+    }
+
     audio.addEventListener("loadedmetadata", () => {
-      if (isFinite(audio.duration)) setDuration(audio.duration);
+      if (!trySetDuration()) {
+        // WebM from MediaRecorder often has Infinity duration.
+        // Workaround: seek to a large value to force the browser to calculate it.
+        audio.currentTime = 1e10;
+      }
     });
-    audio.addEventListener("durationchange", () => {
-      if (isFinite(audio.duration)) setDuration(audio.duration);
+    audio.addEventListener("durationchange", trySetDuration);
+    audio.addEventListener("timeupdate", function onSeek() {
+      // After the seek trick, currentTime will snap to the actual end.
+      // Read the now-correct duration and reset currentTime to 0.
+      if (trySetDuration()) {
+        audio.removeEventListener("timeupdate", onSeek);
+        audio.currentTime = 0;
+      }
     });
     audio.addEventListener("ended", () => {
       setPlaying(false);

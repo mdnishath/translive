@@ -349,7 +349,7 @@ export default function ChatWindow({
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
-            ? { ...m, content: transcript, translatedContent: translatedText, translatedAudioUrl, translationEngine: engine ?? "google" }
+            ? { ...m, content: transcript || "(No speech detected)", translatedContent: translatedText, translatedAudioUrl, translationEngine: engine ?? "google" }
             : m
         )
       );

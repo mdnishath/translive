@@ -74,11 +74,14 @@ export function useVoiceRecorder({ onRecordingComplete }: UseVoiceRecorderOption
       }
       updateAnalyser();
 
-      // MediaRecorder
+      // MediaRecorder — use higher bitrate for better quality on mobile
       const mimeType = MediaRecorder.isTypeSupported(AUDIO_CONFIG.mimeType)
         ? AUDIO_CONFIG.mimeType
         : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: 128000,
+      });
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {
@@ -97,7 +100,7 @@ export function useVoiceRecorder({ onRecordingComplete }: UseVoiceRecorderOption
         }
       };
 
-      recorder.start(100); // collect data every 100ms
+      recorder.start(250); // collect data every 250ms (avoids choppy audio on mobile)
       startTimeRef.current = Date.now();
       setState("recording");
 
