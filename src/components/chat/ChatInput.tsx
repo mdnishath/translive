@@ -209,8 +209,8 @@ export default function ChatInput({ onSend, onSendVoice, onTyping, disabled }: C
             disabled={disabled || sending}
             placeholder="Type a message..."
             rows={1}
-            className="w-full bg-[#1f2d4a] text-white text-sm rounded-2xl px-4 py-2.5 placeholder-[#4a5568] focus:outline-none focus:ring-1 focus:ring-[#6C63FF] resize-none overflow-hidden disabled:opacity-50 transition-colors"
-            style={{ maxHeight: "120px" }}
+            className="w-full bg-[#1f2d4a] text-white text-base sm:text-sm rounded-2xl px-4 py-2.5 placeholder-[#4a5568] focus:outline-none focus:ring-1 focus:ring-[#6C63FF] resize-none overflow-hidden disabled:opacity-50 transition-colors"
+            style={{ maxHeight: "120px", fontSize: "16px" }}
           />
         </div>
 
