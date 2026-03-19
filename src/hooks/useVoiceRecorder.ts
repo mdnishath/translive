@@ -100,7 +100,10 @@ export function useVoiceRecorder({ onRecordingComplete }: UseVoiceRecorderOption
         }
       };
 
-      recorder.start(250); // collect data every 250ms (avoids choppy audio on mobile)
+      // Do NOT pass timeslice — Android Chrome produces corrupted WebM
+      // chunks when using start(timeslice). Without it, ondataavailable
+      // fires once on stop() with a single clean blob.
+      recorder.start();
       startTimeRef.current = Date.now();
       setState("recording");
 

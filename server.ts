@@ -27,6 +27,11 @@ import { refineWithClaude } from "./src/services/smartTranslation";
 import { getOrCreateVoiceClone, ttsWithClonedVoice, restoreVoiceCache, isVoiceCloningEnabled } from "./src/services/voiceClone";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { tmpdir } from "os";
+
+const execFileAsync = promisify(execFile);
 
 const dev = process.env.NODE_ENV !== "production";
 const app = next({ dev, dir: __dirname });
@@ -77,13 +82,37 @@ const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string }> 
   en: { languageCode: "en-US", name: "en-US-Standard-A" },
 };
 
-async function sttGoogle(audioBuffer: Buffer, language: string): Promise<string> {
+/** Convert audio to clean OGG/Opus via ffmpeg for reliable STT processing. */
+async function normalizeAudio(inputPath: string): Promise<{ buffer: Buffer; format: "OGG_OPUS" | "WEBM_OPUS" }> {
+  const outPath = join(tmpdir(), `translive-${Date.now()}.ogg`);
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y", "-i", inputPath,
+      "-vn",                    // no video
+      "-acodec", "libopus",     // Opus codec
+      "-ar", "48000",           // 48kHz
+      "-ac", "1",               // mono
+      "-b:a", "64k",            // 64kbps
+      outPath,
+    ], { timeout: 15000 });
+    const buffer = await readFile(outPath);
+    // Clean up temp file
+    try { const { unlink } = await import("fs/promises"); await unlink(outPath); } catch {}
+    return { buffer, format: "OGG_OPUS" };
+  } catch (err) {
+    console.error("[audio] ffmpeg normalization failed, using original:", err);
+    const buffer = await readFile(inputPath);
+    return { buffer, format: "WEBM_OPUS" };
+  }
+}
+
+async function sttGoogle(audioBuffer: Buffer, language: string, encoding: string = "WEBM_OPUS"): Promise<string> {
   if (!GOOGLE_API_KEY) { console.error("[stt] No GOOGLE_CLOUD_API_KEY"); return ""; }
   const res = await fetch(`${GOOGLE_STT_URL}?key=${GOOGLE_API_KEY}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      config: { encoding: "WEBM_OPUS", sampleRateHertz: 48000, languageCode: language === "bn" ? "bn-IN" : language === "en" ? "en-US" : "fr-FR", enableAutomaticPunctuation: true },
+      config: { encoding, sampleRateHertz: 48000, languageCode: language === "bn" ? "bn-IN" : language === "en" ? "en-US" : "fr-FR", enableAutomaticPunctuation: true },
       audio: { content: audioBuffer.toString("base64") },
     }),
   });
@@ -137,15 +166,17 @@ async function processVoiceMessage(
 ) {
   console.log(`[voice] Processing ${messageId}: STT → Translate → Voice Clone TTS`);
 
-  // Step 1: Read audio file
+  // Step 1: Normalize audio via ffmpeg (fixes corrupted WebM from Android)
   const filePath = join(process.cwd(), "public", audioUrl);
-  const audioBuffer = await readFile(filePath);
+  const originalBuffer = await readFile(filePath);
+  const { buffer: audioBuffer, format: audioFormat } = await normalizeAudio(filePath);
+  console.log(`[voice] Audio normalized: format=${audioFormat}, size=${audioBuffer.length}`);
 
   // Step 2: STT — Bengali uses Google, English/French use Deepgram
   console.log(`[voice] STT: senderLang=${senderLang}, targetLang=${targetLang}, using ${senderLang === "bn" ? "Google" : "Deepgram"}`);
   let transcript = "";
   if (senderLang === "bn") {
-    transcript = await sttGoogle(audioBuffer, senderLang);
+    transcript = await sttGoogle(audioBuffer, senderLang, audioFormat);
   } else {
     // Try Deepgram first, fallback to Google if empty or error
     try {
@@ -155,7 +186,7 @@ async function processVoiceMessage(
     }
     if (!transcript) {
       console.log(`[voice] Deepgram failed, trying Google STT fallback`);
-      transcript = await sttGoogle(audioBuffer, senderLang);
+      transcript = await sttGoogle(audioBuffer, senderLang, audioFormat);
     }
   }
 
@@ -216,7 +247,7 @@ async function processVoiceMessage(
     // Try ElevenLabs voice cloning first
     if (isVoiceCloningEnabled()) {
       try {
-        const voiceId = await getOrCreateVoiceClone(senderId, audioBuffer, senderName);
+        const voiceId = await getOrCreateVoiceClone(senderId, originalBuffer, senderName);
         if (voiceId) {
           audioData = await ttsWithClonedVoice(translatedText, targetLang, voiceId);
 
