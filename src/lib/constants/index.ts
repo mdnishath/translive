@@ -22,7 +22,7 @@ export const GOOGLE_TTS_CONFIG = {
 } as const;
 
 export const AUDIO_CONFIG = {
-  sampleRate: 16000,
+  sampleRate: 48000,
   channels: 1,
   mimeType: "audio/webm;codecs=opus",
 } as const;

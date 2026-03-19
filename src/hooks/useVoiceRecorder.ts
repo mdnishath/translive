@@ -46,17 +46,17 @@ export function useVoiceRecorder({ onRecordingComplete }: UseVoiceRecorderOption
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          sampleRate: AUDIO_CONFIG.sampleRate,
           channelCount: AUDIO_CONFIG.channels,
           echoCancellation: true,
           noiseSuppression: true,
+          autoGainControl: true,
         },
       });
 
       streamRef.current = stream;
 
-      // Set up Web Audio API analyser for waveform
-      const audioCtx = new AudioContext({ sampleRate: AUDIO_CONFIG.sampleRate });
+      // Set up Web Audio API analyser for waveform (use device default sample rate)
+      const audioCtx = new AudioContext();
       audioContextRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
