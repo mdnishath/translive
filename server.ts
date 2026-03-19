@@ -146,7 +146,7 @@ async function ttsGoogle(text: string, language: string): Promise<string | null>
     body: JSON.stringify({
       input: { text },
       voice: { languageCode: voice.languageCode, name: voice.name, ssmlGender: voice.ssmlGender },
-      audioConfig: { audioEncoding: "MP3", speakingRate: 0.75, pitch: 0 },
+      audioConfig: { audioEncoding: "MP3", speakingRate: 0.95, pitch: 0 },
     }),
   });
   if (!res.ok) return null;
@@ -244,27 +244,24 @@ async function processVoiceMessage(
   if (translatedText) {
     let audioData: Buffer | null = null;
 
-    // Try ElevenLabs voice cloning first
-    if (isVoiceCloningEnabled()) {
-      try {
-        const voiceId = await getOrCreateVoiceClone(senderId, originalBuffer, senderName);
-        if (voiceId) {
-          audioData = await ttsWithClonedVoice(translatedText, targetLang, voiceId);
+    // Voice cloning disabled — Google Wavenet female voices are clearer
+    // and more professional than cloned voices for translation.
+    // To re-enable: uncomment the ElevenLabs block below.
+    //
+    // if (isVoiceCloningEnabled()) {
+    //   try {
+    //     const voiceId = await getOrCreateVoiceClone(senderId, originalBuffer, senderName);
+    //     if (voiceId) {
+    //       audioData = await ttsWithClonedVoice(translatedText, targetLang, voiceId);
+    //     }
+    //   } catch (err) {
+    //     console.error("[voice] ElevenLabs failed:", err);
+    //   }
+    // }
 
-          // Persist voice clone ID to DB for future sessions
-          await prisma.user.update({
-            where: { id: senderId },
-            data: { voiceCloneId: voiceId, voiceCloneAt: new Date() },
-          });
-        }
-      } catch (err) {
-        console.error("[voice] ElevenLabs voice clone failed, falling back to Google TTS:", err);
-      }
-    }
-
-    // Fallback: Google Cloud TTS (generic voice)
-    if (!audioData) {
-      console.log("[voice] Using Google TTS fallback");
+    // Google Cloud TTS — clear female Wavenet voices
+    {
+      console.log("[voice] Using Google TTS (Wavenet Female)");
       const audioBase64 = await ttsGoogle(translatedText, targetLang);
       if (audioBase64) {
         audioData = Buffer.from(audioBase64, "base64");

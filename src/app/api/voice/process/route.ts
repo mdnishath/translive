@@ -91,7 +91,7 @@ async function synthesizeGoogle(text: string, language: string): Promise<string 
     body: JSON.stringify({
       input: { text },
       voice: { languageCode: voiceConfig.languageCode, name: voiceConfig.name, ssmlGender: voiceConfig.ssmlGender },
-      audioConfig: { audioEncoding: "MP3", speakingRate: 0.75, pitch: 0 },
+      audioConfig: { audioEncoding: "MP3", speakingRate: 0.95, pitch: 0 },
     }),
   });
 

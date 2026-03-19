@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         },
         audioConfig: {
           audioEncoding: "MP3",
-          speakingRate: 0.75,
+          speakingRate: 0.95,
           pitch: 0,
         },
       }),

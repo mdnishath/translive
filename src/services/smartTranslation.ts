@@ -76,19 +76,19 @@ export async function refineWithClaude(
       messages: [
         {
           role: "user",
-          content: `You are a smart translator who makes translations sound natural and human. Refine this machine translation to sound like how a real person would naturally say it — clear, warm, and easy to understand.
+          content: `You are a professional translator. Refine this machine translation to be accurate, clear, and natural-sounding in ${targetName}.
 ${contextBlock}
 Original (${sourceName}): ${originalText}
 Machine translation (${targetName}): ${googleTranslation}
 
 Rules:
-- Make it sound natural and human — not robotic, not like a textbook
-- Keep it clear and easy to understand when spoken aloud (this will be read by TTS)
-- French: Use "tu/ton/ta" (informal but not slang-heavy). Natural spoken French.
-- Bengali: Use "তুমি/তোমার" level — friendly but not overly colloquial. শুদ্ধ কথ্য বাংলা, NOT "তুই/তোর" street-level. Avoid excessive slang.
-- English: Natural conversational tone
-- Match the emotion of the original message
-- Keep the same meaning, don't add or remove information
+- Produce a clean, professional translation — accurate and easy to understand
+- This text will be read aloud by TTS, so it must be clear when spoken
+- Use proper, standard ${targetName} — not slang, not overly casual, not street language
+- Bengali: Use শুদ্ধ বাংলা (standard Bengali). Use "আপনি/আপনার" or "তুমি/তোমার". NEVER use "তুই/তোর" or regional slang
+- French: Use standard French. "tu" is fine but no heavy slang
+- English: Use clear, standard English
+- Preserve the original meaning exactly — do not add, remove, or exaggerate
 - Return ONLY the refined translation, nothing else`,
         },
       ],
