@@ -76,10 +76,16 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
+const GEMINI_TTS_URL = "https://texttospeech.googleapis.com/v1beta1/text:synthesize";
 const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
   bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
+};
+const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName: string }> = {
+  bn: { languageCode: "bn-BD", voiceName: "Despina" },
+  fr: { languageCode: "fr-FR", voiceName: "Aoede" },
+  en: { languageCode: "en-US", voiceName: "Kore" },
 };
 
 /** Convert audio to clean OGG/Opus via ffmpeg for reliable STT processing. */
@@ -136,6 +142,47 @@ async function sttDeepgram(audioBuffer: Buffer, language: string): Promise<strin
   return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
 }
 
+// Gemini Pro TTS — natural, expressive voices (primary)
+async function ttsGemini(text: string, language: string): Promise<string | null> {
+  if (!GOOGLE_API_KEY || !text.trim()) return null;
+  const voice = GEMINI_TTS_VOICES[language];
+  if (!voice) return null;
+
+  try {
+    const res = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        input: {
+          text,
+          prompt: "Read aloud in a warm, welcoming tone.",
+        },
+        voice: {
+          languageCode: voice.languageCode,
+          name: voice.voiceName,
+          modelName: "gemini-2.5-pro-tts",
+        },
+        audioConfig: {
+          audioEncoding: "LINEAR16",
+          speakingRate: 1,
+          pitch: 0,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("[tts] Gemini Pro TTS failed:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    return data.audioContent || null;
+  } catch (err) {
+    console.error("[tts] Gemini Pro TTS error:", err);
+    return null;
+  }
+}
+
+// Google Cloud Wavenet TTS — fallback
 async function ttsGoogle(text: string, language: string): Promise<string | null> {
   if (!GOOGLE_API_KEY || !text.trim()) return null;
   const voice = GOOGLE_TTS_VOICES[language];
@@ -259,16 +306,24 @@ async function processVoiceMessage(
     //   }
     // }
 
-    // Google Cloud TTS — clear female Wavenet voices
+    // Try Gemini Pro TTS first (natural voice), fallback to Wavenet
     {
-      console.log("[voice] Using Google TTS (Wavenet Female)");
-      const audioBase64 = await ttsGoogle(translatedText, targetLang);
+      console.log("[voice] Trying Gemini Pro TTS (Despina/Aoede/Kore)...");
+      const audioBase64 = await ttsGemini(translatedText, targetLang);
       if (audioBase64) {
         audioData = Buffer.from(audioBase64, "base64");
+        console.log("[voice] ✓ Gemini Pro TTS success");
+      } else {
+        console.log("[voice] Gemini TTS failed, falling back to Wavenet...");
+        const wavenetBase64 = await ttsGoogle(translatedText, targetLang);
+        if (wavenetBase64) {
+          audioData = Buffer.from(wavenetBase64, "base64");
+          console.log("[voice] ✓ Wavenet TTS fallback success");
+        }
       }
     }
 
-    // Save the audio file
+    // Save the audio file (LINEAR16 from Gemini → .wav, MP3 from Wavenet → .mp3)
     if (audioData) {
       const ttsDir = join(process.cwd(), "public", "uploads", "voice-tts");
       await mkdir(ttsDir, { recursive: true });

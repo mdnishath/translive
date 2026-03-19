@@ -15,6 +15,14 @@ export const DEEPGRAM_CONFIG = {
   endpointing: 300,
 } as const;
 
+// Gemini Pro TTS voices (natural, expressive)
+export const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName: string }> = {
+  bn: { languageCode: "bn-BD", voiceName: "Despina" },
+  fr: { languageCode: "fr-FR", voiceName: "Aoede" },
+  en: { languageCode: "en-US", voiceName: "Kore" },
+};
+
+// Fallback: Google Cloud Wavenet voices
 export const GOOGLE_TTS_CONFIG = {
   bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },

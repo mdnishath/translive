@@ -1,22 +1,21 @@
 // ===========================================
 // Text-to-Speech API Route
-// Supports: ElevenLabs Voice Clone + Google Cloud TTS fallback
+// Gemini Pro TTS (primary) + Google Wavenet (fallback)
 // ===========================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { GOOGLE_TTS_CONFIG } from "@/lib/constants";
-import { ttsWithClonedVoice, isVoiceCloningEnabled } from "@/services/voiceClone";
+import { GOOGLE_TTS_CONFIG, GEMINI_TTS_VOICES } from "@/lib/constants";
 import type { Language } from "@/types";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
+const GEMINI_TTS_URL = "https://texttospeech.googleapis.com/v1beta1/text:synthesize";
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, language, voiceId } = (await request.json()) as {
+    const { text, language } = (await request.json()) as {
       text: string;
       language: Language;
-      voiceId?: string; // Optional: ElevenLabs cloned voice ID
     };
 
     if (!text || !language) {
@@ -26,23 +25,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Try ElevenLabs cloned voice if voiceId is provided
-    if (voiceId && isVoiceCloningEnabled()) {
-      try {
-        const clonedAudio = await ttsWithClonedVoice(text, language, voiceId);
-        if (clonedAudio) {
-          return NextResponse.json({
-            audioContent: clonedAudio.toString("base64"),
-            language,
-            engine: "elevenlabs",
-          });
-        }
-      } catch (err) {
-        console.error("ElevenLabs TTS failed, falling back to Google:", err);
-      }
-    }
-
-    // Fallback: Google Cloud TTS
     if (!GOOGLE_API_KEY) {
       return NextResponse.json(
         { error: "No TTS service available" },
@@ -50,6 +32,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Try Gemini Pro TTS first (natural, expressive voices)
+    const geminiVoice = GEMINI_TTS_VOICES[language];
+    if (geminiVoice) {
+      try {
+        const response = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            input: {
+              text,
+              prompt: "Read aloud in a warm, welcoming tone.",
+            },
+            voice: {
+              languageCode: geminiVoice.languageCode,
+              name: geminiVoice.voiceName,
+              modelName: "gemini-2.5-pro-tts",
+            },
+            audioConfig: {
+              audioEncoding: "LINEAR16",
+              speakingRate: 1,
+              pitch: 0,
+            },
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.audioContent) {
+            return NextResponse.json({
+              audioContent: data.audioContent,
+              language,
+              engine: "gemini-pro-tts",
+            });
+          }
+        } else {
+          console.error("[tts] Gemini TTS failed:", response.status);
+        }
+      } catch (err) {
+        console.error("[tts] Gemini TTS error:", err);
+      }
+    }
+
+    // Fallback: Google Cloud Wavenet TTS
     const voiceConfig = GOOGLE_TTS_CONFIG[language];
     if (!voiceConfig) {
       return NextResponse.json(
@@ -90,7 +115,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       audioContent: data.audioContent,
       language,
-      engine: "google",
+      engine: "google-wavenet",
     });
   } catch (error) {
     console.error("TTS error:", error);

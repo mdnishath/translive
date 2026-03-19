@@ -15,11 +15,18 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
+const GEMINI_TTS_URL = "https://texttospeech.googleapis.com/v1beta1/text:synthesize";
 
 const GOOGLE_TTS_CONFIG: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
   bn: { languageCode: "bn-IN", name: "bn-IN-Wavenet-A", ssmlGender: "FEMALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
+};
+
+const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName: string }> = {
+  bn: { languageCode: "bn-BD", voiceName: "Despina" },
+  fr: { languageCode: "fr-FR", voiceName: "Aoede" },
+  en: { languageCode: "en-US", voiceName: "Kore" },
 };
 
 // ── STT ──────────────────────────────────────────────────────
@@ -77,11 +84,38 @@ async function transcribe(audioBuffer: Buffer, language: string): Promise<string
     : transcribeWithDeepgram(audioBuffer, language);
 }
 
-// ── TTS (Google fallback) ────────────────────────────────────
+// ── TTS — Gemini Pro (primary) + Wavenet (fallback) ─────────
 
-async function synthesizeGoogle(text: string, language: string): Promise<string | null> {
+async function synthesizeTTS(text: string, language: string): Promise<string | null> {
   if (!GOOGLE_API_KEY || !text.trim()) return null;
 
+  // Try Gemini Pro TTS first
+  const geminiVoice = GEMINI_TTS_VOICES[language];
+  if (geminiVoice) {
+    try {
+      const res = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: { text, prompt: "Read aloud in a warm, welcoming tone." },
+          voice: {
+            languageCode: geminiVoice.languageCode,
+            name: geminiVoice.voiceName,
+            modelName: "gemini-2.5-pro-tts",
+          },
+          audioConfig: { audioEncoding: "LINEAR16", speakingRate: 1, pitch: 0 },
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audioContent) return data.audioContent;
+      }
+    } catch (err) {
+      console.error("[voice/process] Gemini TTS failed:", err);
+    }
+  }
+
+  // Fallback: Google Cloud Wavenet
   const voiceConfig = GOOGLE_TTS_CONFIG[language];
   if (!voiceConfig) return null;
 
@@ -97,7 +131,7 @@ async function synthesizeGoogle(text: string, language: string): Promise<string 
 
   if (!response.ok) return null;
   const data = await response.json();
-  return data.audioContent || null; // base64 MP3
+  return data.audioContent || null;
 }
 
 // ── Main route ───────────────────────────────────────────────
@@ -156,7 +190,7 @@ export async function POST(request: NextRequest) {
 
       // Fallback to Google TTS
       if (!translatedAudioBase64) {
-        translatedAudioBase64 = await synthesizeGoogle(translatedText, targetLang);
+        translatedAudioBase64 = await synthesizeTTS(translatedText, targetLang);
       }
     }
 
