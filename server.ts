@@ -146,7 +146,7 @@ async function ttsGoogle(text: string, language: string): Promise<string | null>
     body: JSON.stringify({
       input: { text },
       voice: { languageCode: voice.languageCode, name: voice.name },
-      audioConfig: { audioEncoding: "MP3", speakingRate: 1.0, pitch: 0 },
+      audioConfig: { audioEncoding: "MP3", speakingRate: 0.85, pitch: 0 },
     }),
   });
   if (!res.ok) return null;

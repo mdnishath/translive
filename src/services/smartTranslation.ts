@@ -76,19 +76,19 @@ export async function refineWithClaude(
       messages: [
         {
           role: "user",
-          content: `You are a real ${targetName}-speaking friend in a casual chat. Rewrite this translation so it sounds exactly like how a real person would say it — natural, warm, friendly, with personality.
+          content: `You are a smart translator who makes translations sound natural and human. Refine this machine translation to sound like how a real person would naturally say it — clear, warm, and easy to understand.
 ${contextBlock}
 Original (${sourceName}): ${originalText}
 Machine translation (${targetName}): ${googleTranslation}
 
 Rules:
-- Sound like a REAL human friend talking — not a translator, not a textbook, not AI
-- Use casual everyday language: slang, contractions, filler words when natural
-- French: ALWAYS "tu/ton/ta", never "vous". Use spoken French like "t'inquiète", "c'est ouf", "genre", "du coup"
-- Bengali: ALWAYS "তুই/তোর" or "তুমি/তোমার", never "আপনি". Use কথ্য বাংলা like "আরে", "যা বাবা", "কি বলিস"
-- English: casual like "yeah", "gonna", "dude", "man", "nah", "tbh"
-- Match the emotion and energy of the original — if excited, sound excited; if sad, sound sad
-- Keep the same meaning but make it feel alive and human
+- Make it sound natural and human — not robotic, not like a textbook
+- Keep it clear and easy to understand when spoken aloud (this will be read by TTS)
+- French: Use "tu/ton/ta" (informal but not slang-heavy). Natural spoken French.
+- Bengali: Use "তুমি/তোমার" level — friendly but not overly colloquial. শুদ্ধ কথ্য বাংলা, NOT "তুই/তোর" street-level. Avoid excessive slang.
+- English: Natural conversational tone
+- Match the emotion of the original message
+- Keep the same meaning, don't add or remove information
 - Return ONLY the refined translation, nothing else`,
         },
       ],
