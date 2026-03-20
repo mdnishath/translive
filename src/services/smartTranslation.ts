@@ -86,27 +86,26 @@ export async function refineWithGemini(
           {
             parts: [
               {
-                text: `You are a professional translator. Refine this machine translation to be accurate, clear, and natural-sounding in ${targetName}.
+                text: `Refine this machine translation. Output ONLY the complete refined translation — nothing else. Do NOT truncate, shorten, or omit any part.
 ${contextBlock}
 Original (${sourceName}): ${originalText}
 Machine translation (${targetName}): ${googleTranslation}
 
-Rules:
-- Produce a clean, professional translation — accurate and easy to understand
-- This text will be read aloud by TTS, so it must be clear when spoken
-- Use proper, standard ${targetName} — not slang, not overly casual, not street language
-- Bengali: Use শুদ্ধ বাংলা (standard Bengali). Use "আপনি/আপনার" or "তুমি/তোমার". NEVER use "তুই/তোর" or regional slang
-- French: Use standard French. "tu" is fine but no heavy slang
-- English: Use clear, standard English
-- Preserve the original meaning exactly — do not add, remove, or exaggerate
-- Return ONLY the refined translation, nothing else`,
+CRITICAL RULES:
+1. Output the COMPLETE translation — every single sentence must be included
+2. Do NOT cut off, shorten, or drop any sentences
+3. The refined translation must have the SAME number of sentences as the machine translation
+4. Use proper, standard ${targetName}
+5. Bengali: শুদ্ধ বাংলা, "তুমি/তোমার" — never "তুই/তোর"
+6. Keep it natural and clear for TTS (spoken aloud)
+7. Return ONLY the refined translation text — no labels, no explanations`,
               },
             ],
           },
         ],
         generationConfig: {
-          maxOutputTokens: 300,
-          temperature: 0.3,
+          maxOutputTokens: 1024,
+          temperature: 0.2,
         },
       }),
     });
@@ -120,6 +119,12 @@ Rules:
     const refined = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
 
     if (!refined) return null;
+
+    // Safety: reject if Gemini truncated the translation (less than 60% of original length)
+    if (refined.length < googleTranslation.length * 0.6) {
+      console.warn(`[smartTranslation] Gemini truncated! Using Google instead. Gemini: ${refined.length} chars, Google: ${googleTranslation.length} chars`);
+      return null;
+    }
 
     if (refined.toLowerCase() === googleTranslation.toLowerCase()) {
       console.log(`[smartTranslation] Gemini agrees with Google — validated`);
