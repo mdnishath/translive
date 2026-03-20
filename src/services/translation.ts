@@ -52,7 +52,7 @@ export async function translateText(
 export async function textToSpeech(
   text: string,
   language: Language
-): Promise<string> {
+): Promise<{ audioContent: string; mimeType?: string }> {
   const response = await fetch("/api/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -64,5 +64,5 @@ export async function textToSpeech(
   }
 
   const data = await response.json();
-  return data.audioContent;
+  return { audioContent: data.audioContent, mimeType: data.mimeType };
 }

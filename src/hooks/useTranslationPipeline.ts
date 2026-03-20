@@ -156,8 +156,8 @@ export function useTranslationPipeline(
         // TTS
         updateState({ status: "speaking" });
         try {
-          const audioContent = await textToSpeech(translated, state.targetLanguage);
-          await playAudioFromBase64(audioContent);
+          const { audioContent, mimeType } = await textToSpeech(translated, state.targetLanguage);
+          await playAudioFromBase64(audioContent, mimeType);
         } catch {
           // TTS may fail in some environments, continue anyway
         }
@@ -235,8 +235,8 @@ export function useTranslationPipeline(
           // Step 3: Text-to-Speech
           updateState({ status: "speaking" });
           try {
-            const audioContent = await textToSpeech(translated, state.targetLanguage);
-            await playAudioFromBase64(audioContent);
+            const { audioContent, mimeType } = await textToSpeech(translated, state.targetLanguage);
+            await playAudioFromBase64(audioContent, mimeType);
           } catch {
             // TTS may fail, continue anyway
           }
