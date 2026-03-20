@@ -274,10 +274,10 @@ async function processVoiceMessage(
   // Step 3: Translate (Google first)
   const translation = await translateText(transcript, senderLang, targetLang);
   let translatedText = translation?.translatedText || null;
-  let translationEngine: "google" | "claude" = "google";
+  let translationEngine: "google" | "gemini" = "google";
   console.log(`[voice] Google translation: "${translatedText}"`);
 
-  // Step 4: Refine with Claude (wait up to 10s)
+  // Step 4: Refine with Gemini Pro (wait up to 10s)
   if (translatedText) {
     try {
       const recentMessages = await prisma.message.findMany({
@@ -296,11 +296,11 @@ async function processVoiceMessage(
 
       if (refined) {
         translatedText = refined;
-        translationEngine = "claude";
-        console.log(`[voice] Claude refined: "${refined}"`);
+        translationEngine = "gemini";
+        console.log(`[voice] Gemini refined: "${refined}"`);
       }
     } catch (err) {
-      console.error("[voice] Claude refinement error:", err);
+      console.error("[voice] Gemini refinement error:", err);
     }
   }
 
@@ -512,14 +512,14 @@ async function bootstrap() {
         });
         const targetLang = otherParticipant?.user?.language ?? getTargetLanguage(senderLang);
 
-        // ── Translation: cache → Google → Claude (wait with timeout) ──
+        // ── Translation: cache → Google → Gemini (wait with timeout) ──
         const cached = translationCache.get(data.content, senderLang, targetLang);
         let finalTranslation: string | null = null;
-        let translationEngine: "google" | "claude" | null = null;
+        let translationEngine: "google" | "gemini" | null = null;
 
         if (cached) {
           finalTranslation = cached.claude ?? cached.google;
-          translationEngine = cached.claude ? "claude" : "google";
+          translationEngine = cached.claude ? "gemini" : "google";
         } else {
           // Step 1: Google Translate (instant)
           const translation = await translateText(data.content, senderLang, targetLang);
@@ -527,7 +527,7 @@ async function bootstrap() {
           if (googleText) {
             translationCache.setGoogle(data.content, senderLang, targetLang, googleText);
 
-            // Step 2: Wait for Claude refinement (max 4s timeout)
+            // Step 2: Wait for Gemini refinement (max 10s timeout)
             const recentMessages = await prisma.message.findMany({
               where: { conversationId: data.conversationId },
               orderBy: { createdAt: "desc" },
@@ -543,7 +543,7 @@ async function bootstrap() {
             ]);
 
             finalTranslation = refined ?? googleText;
-            translationEngine = refined ? "claude" : "google";
+            translationEngine = refined ? "gemini" : "google";
           }
         }
 

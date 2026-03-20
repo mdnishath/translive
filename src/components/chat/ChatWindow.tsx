@@ -333,7 +333,7 @@ export default function ChatWindow({
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
-            ? { ...m, translatedContent: refined, translationEngine: "claude" as const }
+            ? { ...m, translatedContent: refined, translationEngine: "gemini" as const }
             : m
         )
       );

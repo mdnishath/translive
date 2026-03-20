@@ -1,11 +1,10 @@
 // ===========================================
 // Smart Translation API Route
-// Returns Google translation instantly,
-// then Claude refines asynchronously via socket
+// Google Translate (instant) → Gemini Pro (refined)
 // ===========================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { refineWithClaude } from "@/services/smartTranslation";
+import { refineWithGemini } from "@/services/smartTranslation";
 import { translationCache } from "@/lib/cache";
 
 export async function POST(request: NextRequest) {
@@ -25,13 +24,13 @@ export async function POST(request: NextRequest) {
     if (cached?.claude) {
       return NextResponse.json({
         refined: cached.claude,
-        engine: "claude",
+        engine: "gemini",
         fromCache: true,
       });
     }
 
-    // Call Claude for refinement
-    const refined = await refineWithClaude(
+    // Call Gemini for refinement
+    const refined = await refineWithGemini(
       originalText,
       googleTranslation,
       sourceLang,
@@ -41,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       refined,
-      engine: refined ? "claude" : "google",
+      engine: refined ? "gemini" : "google",
       fromCache: false,
     });
   } catch (error) {

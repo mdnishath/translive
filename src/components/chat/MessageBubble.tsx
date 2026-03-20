@@ -194,11 +194,11 @@ export default function MessageBubble({
         <div className={`flex items-center gap-1 px-1 ${isMine ? "flex-row-reverse" : ""}`}>
           <span className="text-[10px] text-slate-600 tabular-nums">{formatTime(message.createdAt)}</span>
 
-          {/* Translation engine badge: A = AI refined, G = Google */}
-          {hasTranslation && (message.translationEngine === "claude" ? (
-            <span className="w-3.5 h-3.5 rounded-full bg-[#4ECDC4] text-[#0a1628] text-[8px] font-bold flex items-center justify-center" title="AI Refined">A</span>
+          {/* Translation engine badge: ✦ = Gemini refined, G = Google Translate */}
+          {hasTranslation && (message.translationEngine === "claude" || message.translationEngine === "gemini" ? (
+            <span className="w-3.5 h-3.5 rounded-full bg-[#4285F4] text-white text-[8px] font-bold flex items-center justify-center" title="Gemini Refined">✦</span>
           ) : (
-            <span className="w-3.5 h-3.5 rounded-full bg-blue-500 text-white text-[8px] font-bold flex items-center justify-center" title="Google Translate">G</span>
+            <span className="w-3.5 h-3.5 rounded-full bg-[#34A853] text-white text-[8px] font-bold flex items-center justify-center" title="Google Translate">G</span>
           ))}
 
           {isMine && (
