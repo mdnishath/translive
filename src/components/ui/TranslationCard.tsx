@@ -24,11 +24,11 @@ export function TranslationCard({ result }: TranslationCardProps) {
     if (isPlaying) return;
     setIsPlaying(true);
     try {
-      const audio = await textToSpeech(
+      const { audioContent, mimeType } = await textToSpeech(
         result.translatedText,
         result.targetLanguage
       );
-      await playAudioFromBase64(audio);
+      await playAudioFromBase64(audioContent, mimeType);
     } catch {
       // silently fail
     } finally {
