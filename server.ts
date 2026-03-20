@@ -79,13 +79,13 @@ const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
 const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent";
 const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
   bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Algenib", ssmlGender: "MALE" },
-  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
-  en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
+  fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-B", ssmlGender: "MALE" },
+  en: { languageCode: "en-US", name: "en-US-Wavenet-B", ssmlGender: "MALE" },
 };
 const GEMINI_TTS_VOICES: Record<string, { voiceName: string }> = {
   bn: { voiceName: "Algenib" },
-  fr: { voiceName: "Aoede" },
-  en: { voiceName: "Kore" },
+  fr: { voiceName: "Orus" },
+  en: { voiceName: "Puck" },
 };
 
 /** Convert audio to clean OGG/Opus via ffmpeg for reliable STT processing. */

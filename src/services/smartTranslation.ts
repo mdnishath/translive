@@ -5,7 +5,7 @@
 
 import { translationCache } from "@/lib/cache";
 
-const GEMINI_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
+// Read API key at call time (not module init) to ensure env vars are loaded
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
@@ -48,7 +48,11 @@ export async function refineWithGemini(
   targetLang: string,
   contextMessages?: string[]
 ): Promise<string | null> {
-  if (!GEMINI_API_KEY) return null;
+  const apiKey = process.env.GOOGLE_CLOUD_API_KEY;
+  if (!apiKey) {
+    console.error("[smartTranslation] GOOGLE_CLOUD_API_KEY not set!");
+    return null;
+  }
 
   // Check cache first
   const cached = translationCache.get(originalText, sourceLang, targetLang);
@@ -74,7 +78,7 @@ export async function refineWithGemini(
   );
 
   try {
-    const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

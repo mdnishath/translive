@@ -14,8 +14,8 @@ const GEMINI_TTS_URL =
 
 const GEMINI_VOICES: Record<string, string> = {
   bn: "Algenib",
-  fr: "Aoede",
-  en: "Kore",
+  fr: "Orus",
+  en: "Puck",
 };
 
 const LANG_NAMES: Record<string, string> = {
