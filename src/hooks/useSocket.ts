@@ -68,13 +68,13 @@ export function useSocket(options: UseSocketOptions = {}) {
     // Use window CustomEvents so deeply nested components (ChatWindow)
     // can subscribe without prop drilling.
     socket.on(SOCKET_EVENTS.RECEIVE_MESSAGE, ({ message, engine }: { message: Message; engine?: string }) => {
-      message.translationEngine = (engine as "google" | "claude") ?? null;
+      message.translationEngine = (engine as "google" | "claude" | "gemini") ?? null;
       optionsRef.current.onReceiveMessage?.(message);
       dispatch("socket:receive_message", { message });
     });
 
     socket.on(SOCKET_EVENTS.MESSAGE_SAVED, ({ tempId, message, engine }: { tempId: string; message: Message; engine?: string }) => {
-      message.translationEngine = (engine as "google" | "claude") ?? null;
+      message.translationEngine = (engine as "google" | "claude" | "gemini") ?? null;
       dispatch("socket:message_saved", { tempId, message });
     });
 

@@ -343,7 +343,7 @@ export default function ChatWindow({
       const { messageId, conversationId, transcript, translatedText, translatedAudioUrl, engine } = e.detail as {
         messageId: string; conversationId: string;
         transcript: string; translatedText: string | null; translatedAudioUrl: string | null;
-        engine?: "google" | "claude";
+        engine?: "google" | "claude" | "gemini";
       };
       if (conversationId !== conversation.id) return;
       setMessages((prev) =>

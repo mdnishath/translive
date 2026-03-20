@@ -16,7 +16,7 @@ export interface Message {
   createdAt: string;
   deletedForEveryone?: boolean;
   /** Which translation engine produced the current translatedContent */
-  translationEngine?: "google" | "claude" | null;
+  translationEngine?: "google" | "claude" | "gemini" | null;
 }
 
 interface MessageBubbleProps {

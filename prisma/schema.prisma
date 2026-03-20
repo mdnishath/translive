@@ -76,7 +76,7 @@ model Message {
   translatedLanguage String?     // "bn" or "fr"
   audioUrl           String?
   translatedAudioUrl String?
-  translationEngine  String?     // "google" or "claude"
+  translationEngine  String?     // "google" or "gemini"
   deletedForEveryone Boolean     @default(false)
   createdAt          DateTime    @default(now())
 
