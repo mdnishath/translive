@@ -308,7 +308,7 @@ async function processVoiceMessage(
   let translationEngine: "google" | "gemini" = "google";
   console.log(`[voice] Google translation: "${translatedText}"`);
 
-  // Step 4: Refine with Gemini Pro (wait up to 10s)
+  // Step 4: Refine with Gemini Pro (wait up to 60s for voice — user is already waiting)
   if (translatedText) {
     try {
       const recentMessages = await prisma.message.findMany({
@@ -319,7 +319,7 @@ async function processVoiceMessage(
       });
       const contextMessages = recentMessages.reverse().map((m) => m.content);
 
-      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000));
       const refined = await Promise.race([
         refineWithGemini(transcript, translatedText, senderLang, targetLang, contextMessages),
         timeout,
@@ -573,7 +573,7 @@ async function bootstrap() {
           if (googleText) {
             translationCache.setGoogle(data.content, senderLang, targetLang, googleText);
 
-            // Step 2: Wait for Gemini refinement (max 10s timeout)
+            // Step 2: Wait for Gemini refinement (max 30s timeout)
             const recentMessages = await prisma.message.findMany({
               where: { conversationId: data.conversationId },
               orderBy: { createdAt: "desc" },
@@ -582,7 +582,7 @@ async function bootstrap() {
             });
             const contextMessages = recentMessages.reverse().map((m) => m.content);
 
-            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
+            const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000));
             const refined = await Promise.race([
               refineWithGemini(data.content, googleText, senderLang, targetLang, contextMessages),
               timeout,

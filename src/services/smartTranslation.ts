@@ -38,8 +38,62 @@ export interface SmartTranslateResult {
 }
 
 /**
+ * Single Gemini API call for translation refinement.
+ */
+async function callGeminiRefine(
+  apiKey: string,
+  originalText: string,
+  googleTranslation: string,
+  sourceName: string,
+  targetName: string,
+  contextBlock: string,
+): Promise<string | null> {
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text: `Refine this machine translation. Output ONLY the complete refined translation — nothing else. Do NOT truncate, shorten, or omit any part.
+${contextBlock}
+Original (${sourceName}): ${originalText}
+Machine translation (${targetName}): ${googleTranslation}
+
+CRITICAL RULES:
+1. Output the COMPLETE translation — every single sentence must be included
+2. Do NOT cut off, shorten, or drop any sentences
+3. The refined translation must have the SAME number of sentences as the machine translation
+4. Use proper, standard ${targetName}
+5. Bengali: শুদ্ধ বাংলা, "তুমি/তোমার" — never "তুই/তোর"
+6. Keep it natural and clear for TTS (spoken aloud)
+7. Return ONLY the refined translation text — no labels, no explanations`,
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: 2048,
+        temperature: 0.2,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("[smartTranslation] Gemini API error:", res.status, errText);
+    return null;
+  }
+
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+}
+
+/**
  * Refine a Google translation using Gemini Pro.
- * Returns null if Gemini is unavailable or fails.
+ * Retries once on failure to ensure maximum Gemini coverage.
+ * Returns null only if Gemini is completely unavailable.
  */
 export async function refineWithGemini(
   originalText: string,
@@ -74,72 +128,48 @@ export async function refineWithGemini(
     : "";
 
   console.log(
-    `[smartTranslation] Refining with Gemini: "${googleTranslation}" (${sourceLang}→${targetLang})`
+    `[smartTranslation] Refining with Gemini: "${googleTranslation.slice(0, 100)}..." (${sourceLang}→${targetLang})`
   );
 
-  try {
-    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: `Refine this machine translation. Output ONLY the complete refined translation — nothing else. Do NOT truncate, shorten, or omit any part.
-${contextBlock}
-Original (${sourceName}): ${originalText}
-Machine translation (${targetName}): ${googleTranslation}
+  // Try up to 2 times for reliability
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const refined = await callGeminiRefine(
+        apiKey, originalText, googleTranslation, sourceName, targetName, contextBlock
+      );
 
-CRITICAL RULES:
-1. Output the COMPLETE translation — every single sentence must be included
-2. Do NOT cut off, shorten, or drop any sentences
-3. The refined translation must have the SAME number of sentences as the machine translation
-4. Use proper, standard ${targetName}
-5. Bengali: শুদ্ধ বাংলা, "তুমি/তোমার" — never "তুই/তোর"
-6. Keep it natural and clear for TTS (spoken aloud)
-7. Return ONLY the refined translation text — no labels, no explanations`,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          maxOutputTokens: 1024,
-          temperature: 0.2,
-        },
-      }),
-    });
+      if (!refined) {
+        console.warn(`[smartTranslation] Attempt ${attempt}: Gemini returned empty`);
+        continue;
+      }
 
-    if (!res.ok) {
-      console.error("[smartTranslation] Gemini API error:", res.status, await res.text());
-      return null;
+      // Safety: reject if Gemini truncated the translation (less than 50% of original length)
+      if (refined.length < googleTranslation.length * 0.5) {
+        console.warn(`[smartTranslation] Attempt ${attempt}: Gemini truncated! Gemini: ${refined.length} chars, Google: ${googleTranslation.length} chars`);
+        continue;
+      }
+
+      if (refined.toLowerCase() === googleTranslation.toLowerCase()) {
+        console.log(`[smartTranslation] Gemini agrees with Google — validated`);
+      }
+
+      console.log(`[smartTranslation] ✓ Refined (attempt ${attempt}): "${refined.slice(0, 100)}..."`);
+
+      // Cache the refined translation
+      translationCache.setClaude(originalText, sourceLang, targetLang, refined);
+
+      return refined;
+    } catch (error) {
+      console.error(`[smartTranslation] Attempt ${attempt} error:`, error);
+      if (attempt < 2) {
+        console.log("[smartTranslation] Retrying in 1s...");
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
-
-    const data = await res.json();
-    const refined = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-
-    if (!refined) return null;
-
-    // Safety: reject if Gemini truncated the translation (less than 60% of original length)
-    if (refined.length < googleTranslation.length * 0.6) {
-      console.warn(`[smartTranslation] Gemini truncated! Using Google instead. Gemini: ${refined.length} chars, Google: ${googleTranslation.length} chars`);
-      return null;
-    }
-
-    if (refined.toLowerCase() === googleTranslation.toLowerCase()) {
-      console.log(`[smartTranslation] Gemini agrees with Google — validated`);
-    }
-
-    console.log(`[smartTranslation] Refined: "${googleTranslation}" → "${refined}"`);
-
-    // Cache the refined translation
-    translationCache.setClaude(originalText, sourceLang, targetLang, refined);
-
-    return refined;
-  } catch (error) {
-    console.error("[smartTranslation] Gemini API error:", error);
-    return null;
   }
+
+  console.error("[smartTranslation] All attempts failed, falling back to Google");
+  return null;
 }
 
 // Legacy alias for backward compatibility
