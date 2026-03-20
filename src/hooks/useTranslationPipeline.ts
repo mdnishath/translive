@@ -7,7 +7,6 @@
 
 import { useState, useRef, useCallback } from "react";
 import type { Language, TranslationResult } from "@/types";
-import { getTargetLanguage } from "@/lib/utils";
 import { getMicrophoneStream } from "@/lib/utils/audio";
 import { transcribeAudio, translateText, textToSpeech } from "@/services/translation";
 import { playAudioFromBase64 } from "@/lib/utils/audio";
@@ -24,16 +23,21 @@ type PipelineStatus =
 interface PipelineState {
   status: PipelineStatus;
   sourceLanguage: Language;
+  targetLanguage: Language;
   originalText: string;
   translatedText: string;
   error: string | null;
   results: TranslationResult[];
 }
 
-export function useTranslationPipeline(initialLanguage: Language = "bn") {
+export function useTranslationPipeline(
+  initialSource: Language = "bn",
+  initialTarget: Language = "en"
+) {
   const [state, setState] = useState<PipelineState>({
     status: "idle",
-    sourceLanguage: initialLanguage,
+    sourceLanguage: initialSource,
+    targetLanguage: initialTarget,
     originalText: "",
     translatedText: "",
     error: null,
@@ -51,9 +55,44 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
     []
   );
 
+  const setSourceLanguage = useCallback(
+    (lang: Language) => {
+      setState((prev) => {
+        // If source becomes same as target, swap them
+        if (lang === prev.targetLanguage) {
+          return { ...prev, sourceLanguage: lang, targetLanguage: prev.sourceLanguage };
+        }
+        return { ...prev, sourceLanguage: lang };
+      });
+    },
+    []
+  );
+
+  const setTargetLanguage = useCallback(
+    (lang: Language) => {
+      setState((prev) => {
+        // If target becomes same as source, swap them
+        if (lang === prev.sourceLanguage) {
+          return { ...prev, targetLanguage: lang, sourceLanguage: prev.targetLanguage };
+        }
+        return { ...prev, targetLanguage: lang };
+      });
+    },
+    []
+  );
+
+  const swapLanguages = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      sourceLanguage: prev.targetLanguage,
+      targetLanguage: prev.sourceLanguage,
+    }));
+  }, []);
+
+  // Legacy setter for backward compatibility
   const setLanguage = useCallback(
-    (lang: Language) => updateState({ sourceLanguage: lang }),
-    [updateState]
+    (lang: Language) => setSourceLanguage(lang),
+    [setSourceLanguage]
   );
 
   const cleanupRecording = useCallback(() => {
@@ -107,18 +146,17 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
           translatedText: "",
         });
 
-        const targetLang = getTargetLanguage(state.sourceLanguage);
         const translated = await translateText(
           text,
           state.sourceLanguage,
-          targetLang
+          state.targetLanguage
         );
         updateState({ translatedText: translated });
 
         // TTS
         updateState({ status: "speaking" });
         try {
-          const audioContent = await textToSpeech(translated, targetLang);
+          const audioContent = await textToSpeech(translated, state.targetLanguage);
           await playAudioFromBase64(audioContent);
         } catch {
           // TTS may fail in some environments, continue anyway
@@ -128,7 +166,7 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
           originalText: text,
           translatedText: translated,
           sourceLanguage: state.sourceLanguage,
-          targetLanguage: targetLang,
+          targetLanguage: state.targetLanguage,
           timestamp: Date.now(),
         };
 
@@ -144,7 +182,7 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
         });
       }
     },
-    [state.sourceLanguage, updateState]
+    [state.sourceLanguage, state.targetLanguage, updateState]
   );
 
   const stopRecording = useCallback(async () => {
@@ -156,7 +194,6 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
 
     return new Promise<void>((resolve) => {
       recorder.onstop = async () => {
-        // Grab chunks before cleanup
         const chunks = [...chunksRef.current];
         cleanupRecording();
 
@@ -188,18 +225,17 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
 
           // Step 2: Translate
           updateState({ status: "translating" });
-          const targetLang = getTargetLanguage(state.sourceLanguage);
           const translated = await translateText(
             transcript,
             state.sourceLanguage,
-            targetLang
+            state.targetLanguage
           );
           updateState({ translatedText: translated });
 
           // Step 3: Text-to-Speech
           updateState({ status: "speaking" });
           try {
-            const audioContent = await textToSpeech(translated, targetLang);
+            const audioContent = await textToSpeech(translated, state.targetLanguage);
             await playAudioFromBase64(audioContent);
           } catch {
             // TTS may fail, continue anyway
@@ -210,7 +246,7 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
             originalText: transcript,
             translatedText: translated,
             sourceLanguage: state.sourceLanguage,
-            targetLanguage: targetLang,
+            targetLanguage: state.targetLanguage,
             timestamp: Date.now(),
           };
 
@@ -231,11 +267,14 @@ export function useTranslationPipeline(initialLanguage: Language = "bn") {
 
       recorder.stop();
     });
-  }, [state.sourceLanguage, updateState, cleanupRecording]);
+  }, [state.sourceLanguage, state.targetLanguage, updateState, cleanupRecording]);
 
   return {
     ...state,
     setLanguage,
+    setSourceLanguage,
+    setTargetLanguage,
+    swapLanguages,
     startRecording,
     stopRecording,
     translateFromText,
