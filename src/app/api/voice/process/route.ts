@@ -100,15 +100,7 @@ async function synthesizeTTS(text: string, language: string): Promise<string | n
   const langName = LANG_NAMES[language] || language;
   if (voiceName) {
     try {
-      const prompt = `Read the following ${langName} text aloud naturally. Analyze the mood and emotion of the text and adjust your voice accordingly:
-- If the text is sad or emotional, speak with a gentle, empathetic tone
-- If the text is happy or cheerful, speak with warmth and joy
-- If the text is excited or urgent, speak with energy and enthusiasm
-- If the text is a question, use natural questioning intonation
-- If the text is casual/friendly, speak in a relaxed, conversational way
-- Match the emotion naturally — do not exaggerate
-
-Text to speak: ${text}`;
+      const prompt = text;
 
       const res = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
         method: "POST",

@@ -184,16 +184,8 @@ async function ttsGemini(text: string, language: string): Promise<string | null>
   const langNames: Record<string, string> = { bn: "Bengali", fr: "French", en: "English" };
   const langName = langNames[language] || language;
 
-  // Instruction tells Gemini to detect emotion and adapt expression
-  const prompt = `Read the following ${langName} text aloud naturally. Analyze the mood and emotion of the text and adjust your voice accordingly:
-- If the text is sad or emotional, speak with a gentle, empathetic tone
-- If the text is happy or cheerful, speak with warmth and joy
-- If the text is excited or urgent, speak with energy and enthusiasm
-- If the text is a question, use natural questioning intonation
-- If the text is casual/friendly, speak in a relaxed, conversational way
-- Match the emotion naturally — do not exaggerate
-
-Text to speak: ${text}`;
+  // Simple, direct prompt — avoids first-word stutter
+  const prompt = text;
 
   try {
     const res = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
@@ -412,7 +404,13 @@ async function processVoiceMessage(
     },
   });
 
-  // Step 7: Emit to all participants
+  // Step 7: Fetch the complete updated message from DB
+  const updatedMessage = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: { sender: { select: { id: true, name: true, language: true } } },
+  });
+
+  // Emit voice_processed to sender (updates their existing bubble)
   io.to(`conv:${conversationId}`).emit("voice_processed", {
     messageId,
     conversationId,
@@ -421,6 +419,15 @@ async function processVoiceMessage(
     translatedAudioUrl,
     engine: translationEngine,
   });
+
+  // Emit receive_message to receiver — this is their FIRST time seeing the message
+  // (we delayed sending until transcription was complete)
+  if (updatedMessage) {
+    io.to(`conv:${conversationId}`).emit("receive_message", {
+      message: updatedMessage,
+      engine: translationEngine,
+    });
+  }
 
   console.log(`[voice] Done processing ${messageId} (engine: ${translationEngine})`);
 }
@@ -660,12 +667,12 @@ async function bootstrap() {
           data: { updatedAt: new Date() },
         });
 
-        // Emit immediately — voice message appears in chat
+        // Emit to SENDER only — they see their own recording immediately
         socket.emit("message_saved", { tempId: data.tempId, message });
-        socket.to(`conv:${data.conversationId}`).emit("receive_message", { message });
+        // Do NOT emit to receiver yet — wait until transcription + translation is complete
 
         // ── Async pipeline: STT → Translate → TTS ──────────────
-        // Runs in background — emits voice_processed when done
+        // When done, emits voice_processed to ALL (including receiver's first view)
         processVoiceMessage(message.id, data.audioUrl, senderLang, targetLang, data.conversationId, io, userId, socket.userName)
           .catch((err) => console.error("[voice] Pipeline error for", message.id, err));
       } catch (err) {
