@@ -133,7 +133,7 @@ Rules:
   }
 }
 
-// Backward-compatible alias — server.ts imports this name
+// Legacy alias for backward compatibility
 export const refineWithClaude = refineWithGemini;
 
 /**

@@ -23,7 +23,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { setIO } from "./src/lib/socket/io";
 import { translateText, getTargetLanguage } from "./src/lib/translate";
 import { translationCache } from "./src/lib/cache";
-import { refineWithClaude } from "./src/services/smartTranslation";
+import { refineWithGemini } from "./src/services/smartTranslation";
 import { getOrCreateVoiceClone, ttsWithClonedVoice, restoreVoiceCache, isVoiceCloningEnabled } from "./src/services/voiceClone";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
@@ -329,7 +329,7 @@ async function processVoiceMessage(
 
       const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
       const refined = await Promise.race([
-        refineWithClaude(transcript, translatedText, senderLang, targetLang, contextMessages),
+        refineWithGemini(transcript, translatedText, senderLang, targetLang, contextMessages),
         timeout,
       ]);
 
@@ -577,7 +577,7 @@ async function bootstrap() {
 
             const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
             const refined = await Promise.race([
-              refineWithClaude(data.content, googleText, senderLang, targetLang, contextMessages),
+              refineWithGemini(data.content, googleText, senderLang, targetLang, contextMessages),
               timeout,
             ]);
 
