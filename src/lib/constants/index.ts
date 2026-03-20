@@ -15,16 +15,16 @@ export const DEEPGRAM_CONFIG = {
   endpointing: 300,
 } as const;
 
-// Gemini Pro TTS voices (natural, expressive)
-export const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName: string }> = {
-  bn: { languageCode: "bn-BD", voiceName: "Despina" },
-  fr: { languageCode: "fr-FR", voiceName: "Aoede" },
-  en: { languageCode: "en-US", voiceName: "Kore" },
+// Gemini Pro TTS voices (expression-aware)
+export const GEMINI_TTS_VOICES: Record<string, string> = {
+  bn: "Algenib",
+  fr: "Aoede",
+  en: "Kore",
 };
 
-// Fallback: Google Cloud Wavenet voices
+// Fallback: Google Cloud Chirp3-HD / Wavenet voices
 export const GOOGLE_TTS_CONFIG = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Despina", ssmlGender: "FEMALE" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Algenib", ssmlGender: "MALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 } as const;

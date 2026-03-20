@@ -1,12 +1,11 @@
 // ===========================================
 // Voice Message Processing Pipeline
-// STT → Translate → Voice Clone TTS (server-side)
+// STT → Translate → Gemini Pro TTS (expression-aware)
 // ===========================================
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth";
 import { translateText, getTargetLanguage } from "@/lib/translate";
-import { getOrCreateVoiceClone, ttsWithClonedVoice, isVoiceCloningEnabled } from "@/services/voiceClone";
 import { readFile } from "fs/promises";
 import { join } from "path";
 
@@ -15,18 +14,25 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
+const GEMINI_TTS_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent";
 
 const GOOGLE_TTS_CONFIG: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Despina", ssmlGender: "FEMALE" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Algenib", ssmlGender: "MALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 };
 
-const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName: string }> = {
-  bn: { languageCode: "bn-BD", voiceName: "Despina" },
-  fr: { languageCode: "fr-FR", voiceName: "Aoede" },
-  en: { languageCode: "en-US", voiceName: "Kore" },
+const GEMINI_VOICES: Record<string, string> = {
+  bn: "Algenib",
+  fr: "Aoede",
+  en: "Kore",
+};
+
+const LANG_NAMES: Record<string, string> = {
+  bn: "Bengali",
+  fr: "French",
+  en: "English",
 };
 
 // ── STT ──────────────────────────────────────────────────────
@@ -84,38 +90,42 @@ async function transcribe(audioBuffer: Buffer, language: string): Promise<string
     : transcribeWithDeepgram(audioBuffer, language);
 }
 
-// ── TTS — Gemini Pro (primary) + Wavenet (fallback) ─────────
+// ── TTS — Gemini Pro (primary) + Chirp3-HD (fallback) ───────
 
 async function synthesizeTTS(text: string, language: string): Promise<string | null> {
   if (!GOOGLE_API_KEY || !text.trim()) return null;
 
-  // Try Gemini TTS first (natural voices)
-  const geminiVoice = GEMINI_TTS_VOICES[language];
-  if (geminiVoice) {
+  // Try Gemini Pro TTS (expression-aware)
+  const voiceName = GEMINI_VOICES[language];
+  const langName = LANG_NAMES[language] || language;
+  if (voiceName) {
     try {
+      const prompt = `Read the following ${langName} text aloud naturally. Analyze the mood and emotion of the text and adjust your voice accordingly:
+- If the text is sad or emotional, speak with a gentle, empathetic tone
+- If the text is happy or cheerful, speak with warmth and joy
+- If the text is excited or urgent, speak with energy and enthusiasm
+- If the text is a question, use natural questioning intonation
+- If the text is casual/friendly, speak in a relaxed, conversational way
+- Match the emotion naturally — do not exaggerate
+
+Text to speak: ${text}`;
+
       const res = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: `Say the following in a warm, clear, welcoming tone:\n\n${text}` },
-              ],
-            },
-          ],
+          contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
               voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: geminiVoice.voiceName,
-                },
+                prebuiltVoiceConfig: { voiceName },
               },
             },
           },
         }),
       });
+
       if (res.ok) {
         const data = await res.json();
         const parts = data?.candidates?.[0]?.content?.parts;
@@ -128,11 +138,11 @@ async function synthesizeTTS(text: string, language: string): Promise<string | n
         }
       }
     } catch (err) {
-      console.error("[voice/process] Gemini TTS failed:", err);
+      console.error("[voice/process] Gemini Pro TTS failed:", err);
     }
   }
 
-  // Fallback: Google Cloud Wavenet
+  // Fallback: Chirp3-HD
   const voiceConfig = GOOGLE_TTS_CONFIG[language];
   if (!voiceConfig) return null;
 
@@ -142,7 +152,7 @@ async function synthesizeTTS(text: string, language: string): Promise<string | n
     body: JSON.stringify({
       input: { text },
       voice: { languageCode: voiceConfig.languageCode, name: voiceConfig.name, ssmlGender: voiceConfig.ssmlGender },
-      audioConfig: { audioEncoding: "MP3", speakingRate: 0.95, pitch: 0 },
+      audioConfig: { audioEncoding: "MP3", speakingRate: 1, pitch: 0 },
     }),
   });
 
@@ -187,28 +197,10 @@ export async function POST(request: NextRequest) {
     const translation = await translateText(transcript, senderLanguage, targetLang);
     const translatedText = translation?.translatedText || null;
 
-    // Step 3: TTS — try ElevenLabs voice cloning, fallback to Google
+    // Step 3: TTS — Gemini Pro (expression-aware)
     let translatedAudioBase64: string | null = null;
     if (translatedText) {
-      // Try voice cloning with ElevenLabs
-      if (isVoiceCloningEnabled()) {
-        try {
-          const voiceId = await getOrCreateVoiceClone(user.userId, audioBuffer);
-          if (voiceId) {
-            const clonedAudio = await ttsWithClonedVoice(translatedText, targetLang, voiceId);
-            if (clonedAudio) {
-              translatedAudioBase64 = clonedAudio.toString("base64");
-            }
-          }
-        } catch (err) {
-          console.error("[voice/process] ElevenLabs failed, using Google TTS:", err);
-        }
-      }
-
-      // Fallback to Google TTS
-      if (!translatedAudioBase64) {
-        translatedAudioBase64 = await synthesizeTTS(translatedText, targetLang);
-      }
+      translatedAudioBase64 = await synthesizeTTS(translatedText, targetLang);
     }
 
     return NextResponse.json({

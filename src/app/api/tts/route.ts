@@ -1,15 +1,28 @@
 // ===========================================
 // Text-to-Speech API Route
-// Gemini Pro TTS (primary) + Google Wavenet (fallback)
+// Gemini Pro TTS (expression-aware) + Chirp3-HD fallback
 // ===========================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { GOOGLE_TTS_CONFIG, GEMINI_TTS_VOICES } from "@/lib/constants";
+import { GOOGLE_TTS_CONFIG } from "@/lib/constants";
 import type { Language } from "@/types";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
+const GEMINI_TTS_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent";
+
+const GEMINI_VOICES: Record<string, string> = {
+  bn: "Algenib",
+  fr: "Aoede",
+  en: "Kore",
+};
+
+const LANG_NAMES: Record<string, string> = {
+  bn: "Bengali",
+  fr: "French",
+  en: "English",
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,28 +45,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Try Gemini Pro TTS first (natural, expressive voices)
-    const geminiVoice = GEMINI_TTS_VOICES[language];
-    if (geminiVoice) {
+    // Try Gemini Pro TTS first (expression-aware)
+    const voiceName = GEMINI_VOICES[language];
+    const langName = LANG_NAMES[language] || language;
+    if (voiceName) {
       try {
+        const prompt = `Read the following ${langName} text aloud naturally. Analyze the mood and emotion of the text and adjust your voice accordingly:
+- If the text is sad or emotional, speak with a gentle, empathetic tone
+- If the text is happy or cheerful, speak with warmth and joy
+- If the text is excited or urgent, speak with energy and enthusiasm
+- If the text is a question, use natural questioning intonation
+- If the text is casual/friendly, speak in a relaxed, conversational way
+- Match the emotion naturally — do not exaggerate
+
+Text to speak: ${text}`;
+
         const response = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: `Say the following in a warm, clear, welcoming tone:\n\n${text}` },
-                ],
-              },
-            ],
+            contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
                 voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName: geminiVoice.voiceName,
-                  },
+                  prebuiltVoiceConfig: { voiceName },
                 },
               },
             },
@@ -69,21 +85,21 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({
                   audioContent: part.inlineData.data,
                   language,
-                  engine: "gemini-tts",
+                  engine: "gemini-pro-tts",
                   mimeType: part.inlineData.mimeType,
                 });
               }
             }
           }
         } else {
-          console.error("[tts] Gemini TTS failed:", response.status);
+          console.error("[tts] Gemini Pro TTS failed:", response.status);
         }
       } catch (err) {
-        console.error("[tts] Gemini TTS error:", err);
+        console.error("[tts] Gemini Pro TTS error:", err);
       }
     }
 
-    // Fallback: Google Cloud Wavenet TTS
+    // Fallback: Google Cloud TTS (Chirp3-HD)
     const voiceConfig = GOOGLE_TTS_CONFIG[language];
     if (!voiceConfig) {
       return NextResponse.json(
@@ -102,17 +118,12 @@ export async function POST(request: NextRequest) {
           name: voiceConfig.name,
           ssmlGender: voiceConfig.ssmlGender,
         },
-        audioConfig: {
-          audioEncoding: "MP3",
-          speakingRate: 0.95,
-          pitch: 0,
-        },
+        audioConfig: { audioEncoding: "MP3", speakingRate: 1, pitch: 0 },
       }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Google TTS error:", errorText);
+      console.error("Google TTS error:", await response.text());
       return NextResponse.json(
         { error: "Text-to-speech failed" },
         { status: response.status }
@@ -120,11 +131,10 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-
     return NextResponse.json({
       audioContent: data.audioContent,
       language,
-      engine: "google-wavenet",
+      engine: "chirp3-hd",
     });
   } catch (error) {
     console.error("TTS error:", error);

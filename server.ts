@@ -76,16 +76,16 @@ const GOOGLE_API_KEY = process.env.GOOGLE_CLOUD_API_KEY;
 const DEEPGRAM_URL = "https://api.deepgram.com/v1/listen";
 const GOOGLE_STT_URL = "https://speech.googleapis.com/v1/speech:recognize";
 const TTS_URL = "https://texttospeech.googleapis.com/v1/text:synthesize";
-const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
+const GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent";
 const GOOGLE_TTS_VOICES: Record<string, { languageCode: string; name: string; ssmlGender: string }> = {
-  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Despina", ssmlGender: "FEMALE" },
+  bn: { languageCode: "bn-IN", name: "bn-IN-Chirp3-HD-Algenib", ssmlGender: "MALE" },
   fr: { languageCode: "fr-FR", name: "fr-FR-Wavenet-A", ssmlGender: "FEMALE" },
   en: { languageCode: "en-US", name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
 };
-const GEMINI_TTS_VOICES: Record<string, { languageCode: string; voiceName: string }> = {
-  bn: { languageCode: "bn-BD", voiceName: "Despina" },
-  fr: { languageCode: "fr-FR", voiceName: "Aoede" },
-  en: { languageCode: "en-US", voiceName: "Kore" },
+const GEMINI_TTS_VOICES: Record<string, { voiceName: string }> = {
+  bn: { voiceName: "Algenib" },
+  fr: { voiceName: "Aoede" },
+  en: { voiceName: "Kore" },
 };
 
 /** Convert audio to clean OGG/Opus via ffmpeg for reliable STT processing. */
@@ -142,24 +142,34 @@ async function sttDeepgram(audioBuffer: Buffer, language: string): Promise<strin
   return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
 }
 
-// Gemini TTS — natural, expressive voices via Generative Language API
+// Gemini Pro TTS — expressive, emotion-aware voice synthesis
+// Gemini analyzes the text mood and adjusts tone automatically:
+// sad → sad tone, happy → joyful, excited → energetic, etc.
 async function ttsGemini(text: string, language: string): Promise<string | null> {
   if (!GOOGLE_API_KEY || !text.trim()) return null;
   const voice = GEMINI_TTS_VOICES[language];
   if (!voice) return null;
+
+  const langNames: Record<string, string> = { bn: "Bengali", fr: "French", en: "English" };
+  const langName = langNames[language] || language;
+
+  // Instruction tells Gemini to detect emotion and adapt expression
+  const prompt = `Read the following ${langName} text aloud naturally. Analyze the mood and emotion of the text and adjust your voice accordingly:
+- If the text is sad or emotional, speak with a gentle, empathetic tone
+- If the text is happy or cheerful, speak with warmth and joy
+- If the text is excited or urgent, speak with energy and enthusiasm
+- If the text is a question, use natural questioning intonation
+- If the text is casual/friendly, speak in a relaxed, conversational way
+- Match the emotion naturally — do not exaggerate
+
+Text to speak: ${text}`;
 
   try {
     const res = await fetch(`${GEMINI_TTS_URL}?key=${GOOGLE_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `Say the following in a warm, clear, welcoming tone:\n\n${text}` },
-            ],
-          },
-        ],
+        contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           responseModalities: ["AUDIO"],
           speechConfig: {
@@ -175,27 +185,25 @@ async function ttsGemini(text: string, language: string): Promise<string | null>
 
     if (!res.ok) {
       const errText = await res.text();
-      console.error("[tts] Gemini TTS failed:", res.status, errText);
+      console.error("[tts] Gemini Pro TTS failed:", res.status, errText);
       return null;
     }
 
     const data = await res.json();
-
-    // Extract audio from Gemini response
     const parts = data?.candidates?.[0]?.content?.parts;
     if (parts) {
       for (const part of parts) {
         if (part.inlineData?.mimeType?.startsWith("audio/")) {
-          console.log("[tts] ✓ Gemini TTS success, mime:", part.inlineData.mimeType);
-          return part.inlineData.data; // base64 audio
+          console.log("[tts] ✓ Gemini Pro TTS success, voice:", voice.voiceName);
+          return part.inlineData.data;
         }
       }
     }
 
-    console.error("[tts] Gemini TTS: no audio in response");
+    console.error("[tts] Gemini Pro TTS: no audio in response, finishReason:", data?.candidates?.[0]?.finishReason);
     return null;
   } catch (err) {
-    console.error("[tts] Gemini TTS error:", err);
+    console.error("[tts] Gemini Pro TTS error:", err);
     return null;
   }
 }
@@ -324,24 +332,15 @@ async function processVoiceMessage(
     //   }
     // }
 
-    // Bengali: Chirp3-HD-Despina (best Bengali voice via Cloud TTS)
-    // English/French: Gemini TTS (natural) → Wavenet fallback
+    // Gemini Pro TTS for all languages (expression-aware)
+    // Fallback: Chirp3-HD (Google Cloud TTS)
     {
-      let audioBase64: string | null = null;
+      console.log("[voice] Trying Gemini Pro TTS (expression-aware)...");
+      let audioBase64 = await ttsGemini(translatedText, targetLang);
 
-      if (targetLang === "bn") {
-        // Bengali — use Chirp3-HD-Despina (Gemini TTS doesn't support Bengali)
-        console.log("[voice] Using Chirp3-HD-Despina for Bengali...");
-        audioBase64 = await ttsGoogle(translatedText, targetLang);
-      } else {
-        // English/French — try Gemini TTS first
-        console.log("[voice] Trying Gemini TTS...");
-        audioBase64 = await ttsGemini(translatedText, targetLang);
-      }
-
-      // Fallback to Google Cloud TTS
+      // Fallback to Google Cloud TTS (Chirp3-HD)
       if (!audioBase64) {
-        console.log("[voice] Falling back to Google Cloud TTS...");
+        console.log("[voice] Gemini TTS failed, falling back to Chirp3-HD...");
         audioBase64 = await ttsGoogle(translatedText, targetLang);
       }
 
