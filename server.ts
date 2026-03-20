@@ -142,6 +142,37 @@ async function sttDeepgram(audioBuffer: Buffer, language: string): Promise<strin
   return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
 }
 
+// Convert raw PCM (LINEAR16) to WAV format with proper headers
+function pcmToWav(pcmData: Buffer, sampleRate: number, channels: number, bitsPerSample: number): Buffer {
+  const byteRate = sampleRate * channels * (bitsPerSample / 8);
+  const blockAlign = channels * (bitsPerSample / 8);
+  const dataSize = pcmData.length;
+  const headerSize = 44;
+  const wav = Buffer.alloc(headerSize + dataSize);
+
+  // RIFF header
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + dataSize, 4);
+  wav.write("WAVE", 8);
+
+  // fmt chunk
+  wav.write("fmt ", 12);
+  wav.writeUInt32LE(16, 16);          // chunk size
+  wav.writeUInt16LE(1, 20);           // PCM format
+  wav.writeUInt16LE(channels, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(byteRate, 28);
+  wav.writeUInt16LE(blockAlign, 32);
+  wav.writeUInt16LE(bitsPerSample, 34);
+
+  // data chunk
+  wav.write("data", 36);
+  wav.writeUInt32LE(dataSize, 40);
+  pcmData.copy(wav, 44);
+
+  return wav;
+}
+
 // Gemini Pro TTS — expressive, emotion-aware voice synthesis
 // Gemini analyzes the text mood and adjusts tone automatically:
 // sad → sad tone, happy → joyful, excited → energetic, etc.
@@ -334,27 +365,36 @@ async function processVoiceMessage(
 
     // Gemini Pro TTS for all languages (expression-aware)
     // Fallback: Chirp3-HD (Google Cloud TTS)
+    let ttsSource: "gemini" | "google" | null = null;
     {
       console.log("[voice] Trying Gemini Pro TTS (expression-aware)...");
       let audioBase64 = await ttsGemini(translatedText, targetLang);
-
-      // Fallback to Google Cloud TTS (Chirp3-HD)
-      if (!audioBase64) {
+      if (audioBase64) {
+        ttsSource = "gemini";
+      } else {
         console.log("[voice] Gemini TTS failed, falling back to Chirp3-HD...");
         audioBase64 = await ttsGoogle(translatedText, targetLang);
+        if (audioBase64) ttsSource = "google";
       }
 
       if (audioBase64) {
         audioData = Buffer.from(audioBase64, "base64");
-        console.log("[voice] ✓ TTS success");
+        console.log("[voice] ✓ TTS success via", ttsSource);
       }
     }
 
-    // Save the audio file (LINEAR16 from Gemini → .wav, MP3 from Wavenet → .mp3)
+    // Save the audio file
     if (audioData) {
       const ttsDir = join(process.cwd(), "public", "uploads", "voice-tts");
       await mkdir(ttsDir, { recursive: true });
-      const ttsFilename = `${messageId}.mp3`;
+
+      // Gemini returns raw PCM (LINEAR16, 24kHz, mono) — wrap in WAV header
+      if (ttsSource === "gemini") {
+        audioData = pcmToWav(audioData, 24000, 1, 16);
+      }
+
+      const ext = ttsSource === "gemini" ? "wav" : "mp3";
+      const ttsFilename = `${messageId}.${ext}`;
       await writeFile(join(ttsDir, ttsFilename), audioData);
       translatedAudioUrl = `/uploads/voice-tts/${ttsFilename}`;
     }
