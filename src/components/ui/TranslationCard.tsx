@@ -9,7 +9,7 @@ import { LANGUAGES } from "@/lib/constants";
 import { formatTimestamp } from "@/lib/utils";
 import { playAudioFromBase64 } from "@/lib/utils/audio";
 import { textToSpeech } from "@/services/translation";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 interface TranslationCardProps {
   result: TranslationResult;
@@ -20,15 +20,23 @@ export function TranslationCard({ result }: TranslationCardProps) {
   const source = LANGUAGES[result.sourceLanguage];
   const target = LANGUAGES[result.targetLanguage];
 
+  // Cache TTS audio after first generation to avoid 5-6s delay on replay
+  const audioCacheRef = useRef<{ audioContent: string; mimeType?: string } | null>(null);
+
   async function handlePlayAudio() {
     if (isPlaying) return;
     setIsPlaying(true);
     try {
-      const { audioContent, mimeType } = await textToSpeech(
-        result.translatedText,
-        result.targetLanguage
-      );
-      await playAudioFromBase64(audioContent, mimeType);
+      let audio = audioCacheRef.current;
+      if (!audio) {
+        // First time — call TTS API and cache result
+        audio = await textToSpeech(
+          result.translatedText,
+          result.targetLanguage
+        );
+        audioCacheRef.current = audio;
+      }
+      await playAudioFromBase64(audio.audioContent, audio.mimeType);
     } catch {
       // silently fail
     } finally {

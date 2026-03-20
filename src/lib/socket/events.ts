@@ -54,6 +54,8 @@ export const SOCKET_EVENTS = {
   MESSAGES_READ: "messages_read",
   /** Server → Client: a message's translation was refined by Claude. */
   TRANSLATION_REFINED: "translation_refined",
+  /** Server → Client: voice message is being processed (receiver sees processing indicator). */
+  VOICE_PROCESSING: "voice_processing",
   /** Server → Client: voice message processing completed (STT + translation + TTS). */
   VOICE_PROCESSED: "voice_processed",
   /** Client → Server: user changed their language preference. */

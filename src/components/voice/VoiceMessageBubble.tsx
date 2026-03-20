@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { registerAudio, unregisterAudio } from "@/lib/utils/audioManager";
 
 interface VoiceMessageBubbleProps {
   audioUrl: string;
@@ -23,9 +24,11 @@ function AudioPlayer({ url, isMine }: { url: string; isMine: boolean }) {
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [waveform, setWaveform] = useState<number[]>([]);
+  const [ready, setReady] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const animRef = useRef<number>(0);
 
+  // Extract waveform for visualization
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -57,9 +60,14 @@ function AudioPlayer({ url, isMine }: { url: string; isMine: boolean }) {
     return () => { cancelled = true; };
   }, [url]);
 
+  // Create and preload audio element
   useEffect(() => {
-    const audio = new Audio(url);
+    const audio = new Audio();
+    audio.preload = "auto";
     audioRef.current = audio;
+    setReady(false);
+
+    let seekTrickDone = false;
 
     function trySetDuration() {
       if (isFinite(audio.duration) && audio.duration > 0) {
@@ -73,28 +81,60 @@ function AudioPlayer({ url, isMine }: { url: string; isMine: boolean }) {
       if (!trySetDuration()) {
         // WebM from MediaRecorder often has Infinity duration.
         // Workaround: seek to a large value to force the browser to calculate it.
+        seekTrickDone = false;
         audio.currentTime = 1e10;
+      } else {
+        seekTrickDone = true;
+        setReady(true);
       }
     });
-    audio.addEventListener("durationchange", trySetDuration);
-    audio.addEventListener("timeupdate", function onSeek() {
-      // After the seek trick, currentTime will snap to the actual end.
-      // Read the now-correct duration and reset currentTime to 0.
-      if (trySetDuration()) {
-        audio.removeEventListener("timeupdate", onSeek);
+
+    audio.addEventListener("durationchange", () => {
+      if (trySetDuration() && !seekTrickDone) {
+        seekTrickDone = true;
+        // Reset to start after seek trick completes
         audio.currentTime = 0;
+        setReady(true);
       }
     });
+
+    // Fallback: if timeupdate fires from seek trick, catch duration
+    function onSeekUpdate() {
+      if (!seekTrickDone && trySetDuration()) {
+        seekTrickDone = true;
+        audio.removeEventListener("timeupdate", onSeekUpdate);
+        audio.currentTime = 0;
+        setReady(true);
+      }
+    }
+    audio.addEventListener("timeupdate", onSeekUpdate);
+
     audio.addEventListener("ended", () => {
       setPlaying(false);
       setCurrentTime(0);
       cancelAnimationFrame(animRef.current);
+      unregisterAudio(audio);
     });
+
+    // Also handle external stop (from audioManager when another audio starts)
+    audio.addEventListener("pause", () => {
+      if (playing) {
+        setPlaying(false);
+        cancelAnimationFrame(animRef.current);
+      }
+    });
+
+    // Set src to start loading
+    audio.src = url;
+
     return () => {
       cancelAnimationFrame(animRef.current);
+      unregisterAudio(audio);
       audio.pause();
+      audio.removeEventListener("timeupdate", onSeekUpdate);
       audio.src = "";
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
   const updateTime = useCallback(() => {
@@ -111,10 +151,20 @@ function AudioPlayer({ url, isMine }: { url: string; isMine: boolean }) {
       audio.pause();
       cancelAnimationFrame(animRef.current);
       setPlaying(false);
+      unregisterAudio(audio);
     } else {
-      audio.play();
-      animRef.current = requestAnimationFrame(updateTime);
-      setPlaying(true);
+      // Register with global manager — stops any other playing audio
+      registerAudio(audio, () => {
+        setPlaying(false);
+        cancelAnimationFrame(animRef.current);
+      });
+      audio.play().then(() => {
+        animRef.current = requestAnimationFrame(updateTime);
+        setPlaying(true);
+      }).catch(() => {
+        // play failed
+        unregisterAudio(audio);
+      });
     }
   }
 

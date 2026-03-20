@@ -124,6 +124,14 @@ export function useSocket(options: UseSocketOptions = {}) {
       dispatch("socket:translation_refined", data);
     });
 
+    // ── Voice message processing started (receiver sees indicator) ──
+    socket.on(SOCKET_EVENTS.VOICE_PROCESSING, (data: {
+      messageId: string; conversationId: string;
+      senderId: string; senderName?: string;
+    }) => {
+      dispatch("socket:voice_processing", data);
+    });
+
     // ── Voice message processed (STT + translate + TTS) ───────────
     socket.on(SOCKET_EVENTS.VOICE_PROCESSED, (data: {
       messageId: string; conversationId: string;

@@ -669,7 +669,15 @@ async function bootstrap() {
 
         // Emit to SENDER only — they see their own recording immediately
         socket.emit("message_saved", { tempId: data.tempId, message });
-        // Do NOT emit to receiver yet — wait until transcription + translation is complete
+
+        // Notify RECEIVER that a voice message is being processed
+        // They'll see a "Processing voice message..." indicator
+        socket.to(`conv:${data.conversationId}`).emit("voice_processing", {
+          messageId: message.id,
+          conversationId: data.conversationId,
+          senderId: userId,
+          senderName: socket.userName,
+        });
 
         // ── Async pipeline: STT → Translate → TTS ──────────────
         // When done, emits voice_processed to ALL (including receiver's first view)

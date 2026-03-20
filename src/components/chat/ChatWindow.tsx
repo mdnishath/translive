@@ -58,6 +58,7 @@ export default function ChatWindow({
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [isContactTyping, setIsContactTyping] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   /** IDs of messages that failed to send — shown with a red error + retry button. */
   const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
@@ -339,6 +340,12 @@ export default function ChatWindow({
       );
     }
 
+    function onVoiceProcessing(e: CustomEvent) {
+      const { conversationId } = e.detail as { conversationId: string };
+      if (conversationId !== conversation.id) return;
+      setVoiceProcessing(true);
+    }
+
     function onVoiceProcessed(e: CustomEvent) {
       const { messageId, conversationId, transcript, translatedText, translatedAudioUrl, engine } = e.detail as {
         messageId: string; conversationId: string;
@@ -346,6 +353,7 @@ export default function ChatWindow({
         engine?: "google" | "claude" | "gemini";
       };
       if (conversationId !== conversation.id) return;
+      setVoiceProcessing(false);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId
@@ -363,6 +371,7 @@ export default function ChatWindow({
     window.addEventListener("socket:message_deleted", onMessageDeleted as EventListener);
     window.addEventListener("socket:messages_read", onMessagesRead as EventListener);
     window.addEventListener("socket:translation_refined", onTranslationRefined as EventListener);
+    window.addEventListener("socket:voice_processing", onVoiceProcessing as EventListener);
     window.addEventListener("socket:voice_processed", onVoiceProcessed as EventListener);
 
     return () => {
@@ -374,6 +383,7 @@ export default function ChatWindow({
       window.removeEventListener("socket:message_deleted", onMessageDeleted as EventListener);
       window.removeEventListener("socket:messages_read", onMessagesRead as EventListener);
       window.removeEventListener("socket:translation_refined", onTranslationRefined as EventListener);
+      window.removeEventListener("socket:voice_processing", onVoiceProcessing as EventListener);
       window.removeEventListener("socket:voice_processed", onVoiceProcessed as EventListener);
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
@@ -664,6 +674,15 @@ export default function ChatWindow({
                       style={{ animationDelay: `${i * 0.15}s` }}
                     />
                   ))}
+                </div>
+              </div>
+            )}
+
+            {voiceProcessing && !isContactTyping && (
+              <div className="flex items-end gap-2 mb-2 animate-msg-left">
+                <div className="bg-[#162035] border border-blue-500/20 rounded-2xl rounded-bl-sm px-4 py-2.5 flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                  <span className="text-xs text-blue-300">Processing voice message…</span>
                 </div>
               </div>
             )}
