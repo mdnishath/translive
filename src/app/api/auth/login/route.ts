@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     const token = generateToken(user.id, user.email);
     const { password: _, ...safeUser } = user;
 
-    const response = NextResponse.json({ user: safeUser });
+    const response = NextResponse.json({ user: safeUser, token });
     response.cookies.set("auth_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
