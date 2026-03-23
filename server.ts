@@ -485,8 +485,7 @@ async function bootstrap() {
 
   // ─── Socket.io auth middleware ────────────────────────────────
   io.use((socket: AuthSocket, next) => {
-    // auth_token is HttpOnly — JS can't read it, but polling transport
-    // sends it automatically in HTTP Cookie headers on the server side.
+    // Check cookie first (web app), then handshake auth (mobile app)
     const cookieHeader = socket.handshake.headers?.cookie ?? "";
     const cookieToken = cookieHeader
       .split(";")
@@ -494,7 +493,10 @@ async function bootstrap() {
       .find((c) => c.startsWith("auth_token="))
       ?.slice("auth_token=".length);
 
-    const token = cookieToken ? decodeURIComponent(cookieToken) : null;
+    // Mobile apps send token via socket.io auth option
+    const authToken = (socket.handshake.auth as { token?: string })?.token;
+
+    const token = (cookieToken ? decodeURIComponent(cookieToken) : null) || authToken || null;
 
     if (!token) return next(new Error("Unauthorized"));
 
