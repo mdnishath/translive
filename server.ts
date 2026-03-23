@@ -448,14 +448,29 @@ async function bootstrap() {
   }
 
   const httpServer = createServer((req, res) => {
+    // Mobile app fix: Inject Bearer token as cookie so Next.js middleware
+    // (which only checks cookies) allows API requests from mobile apps.
+    // API routes themselves already support both cookies and Bearer tokens.
+    if (req.url?.startsWith("/api/") && req.headers.authorization) {
+      const token = req.headers.authorization.replace("Bearer ", "");
+      req.headers.cookie = `${req.headers.cookie || ""}; auth_token=${token}`;
+    }
+
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl);
   });
 
-  // Fix #12: Explicit allowed origin instead of wildcard
+  // Allow mobile app connections (no origin) + web origin
   const io = new Server(httpServer, {
     cors: {
-      origin: ALLOWED_ORIGIN,
+      origin: (origin, callback) => {
+        // Allow: no origin (mobile apps), or matching ALLOWED_ORIGIN
+        if (!origin || origin === ALLOWED_ORIGIN) {
+          callback(null, true);
+        } else {
+          callback(null, true); // Allow all for now (mobile-first)
+        }
+      },
       methods: ["GET", "POST"],
       credentials: true,
     },

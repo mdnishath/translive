@@ -6,12 +6,20 @@ const JWT_SECRET = new TextEncoder().encode(
 );
 
 const PUBLIC_PATHS = ["/login", "/signup", "/api/auth/login", "/api/auth/signup"];
+// API routes handle their own auth (getAuthUser supports both cookies AND Bearer tokens)
+// so we skip all /api/ routes here to allow mobile apps with Bearer auth to work
+const API_PREFIX = "/api/";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
+
+  // Allow all API routes — they handle their own auth (Bearer + cookie)
+  if (pathname.startsWith(API_PREFIX)) {
     return NextResponse.next();
   }
 
